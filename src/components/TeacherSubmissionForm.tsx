@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { PaperSize, ColorOption, PrintSide, Urgency, PhotocopyRequest } from '../types';
+import { supabase } from '../lib/supabase';
 import { FileUp, Calculator, AlertCircle, CheckCircle2, Clock, Info, ShieldAlert, Sparkles, FileText, ArrowRight, ExternalLink, Folder, Link as LinkIcon } from 'lucide-react';
 
 interface FormProps {
@@ -21,7 +22,6 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({ onSubmitted, onGoTo
   const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState('');
   const [fileSize, setFileSize] = useState('');
-  const [fileDataUrl, setFileDataUrl] = useState<string | undefined>(undefined);
 
   // Print spec state
   const [pagesCount, setPagesCount] = useState<number>(4);
@@ -63,13 +63,6 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({ onSubmitted, onGoTo
     const sizeInMB = (selectedFile.size / (1024 * 1024)).toFixed(1);
     setFileSize(sizeInMB + ' MB');
 
-    // Read as Data URL if image or text or PDF thumbnail
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setFileDataUrl(event.target?.result as string);
-    };
-    reader.readAsDataURL(selectedFile);
-
     // Heuristic for default page count based on size or filename
     if (selectedFile.name.toLowerCase().includes('lks') || selectedFile.name.toLowerCase().includes('modul')) {
       setPagesCount(8);
@@ -100,36 +93,316 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({ onSubmitted, onGoTo
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
+  e.preventDefault();
+  setErrorMsg('');
 
-    if (!teacherName.trim()) {
-      setErrorMsg('Nama Lengkap Guru wajib diisi.');
-      return;
-    }
-    if (!subjectClass.trim()) {
-      setErrorMsg('Kelas / Target Pembelajaran wajib diisi.');
-      return;
-    }
-    if (!title.trim()) {
-      setErrorMsg('Judul Bahan Ajar / Materi wajib diisi.');
-      return;
-    }
-    if (docSourceType === 'UPLOAD') {
-      if (!fileName) {
-        setErrorMsg('Dokumen file wajib diunggah.');
-        return;
+  // =====================================================
+  // VALIDASI FORM
+  // =====================================================
+
+  if (!teacherName.trim()) {
+    setErrorMsg('Nama Lengkap Guru wajib diisi.');
+    return;
+  }
+
+  if (!subjectClass.trim()) {
+    setErrorMsg('Kelas / Target Pembelajaran wajib diisi.');
+    return;
+  }
+
+  if (!title.trim()) {
+    setErrorMsg('Judul Bahan Ajar / Materi wajib diisi.');
+    return;
+  }
+
+  if (docSourceType === 'UPLOAD' && !file) {
+    setErrorMsg('Dokumen file wajib diunggah.');
+    return;
+  }
+
+  if (docSourceType === 'URL' && !fileUrlInput.trim()) {
+    setErrorMsg('Tautan link URL dokumen wajib diisi.');
+    return;
+  }
+
+  if (pagesCount <= 0 || copiesCount <= 0) {
+    setErrorMsg(
+      'Jumlah halaman dan jumlah salinan harus lebih dari 0.'
+    );
+    return;
+  }
+
+  // Maksimal 20 MB
+  if (
+    docSourceType === 'UPLOAD' &&
+    file &&
+    file.size > 20 * 1024 * 1024
+  ) {
+    setErrorMsg(
+      'Ukuran file terlalu besar. Maksimal 20 MB.'
+    );
+    return;
+  }
+
+  setIsSubmitting(true);
+
+  try {
+    // =====================================================
+    // BUAT TRACKING CODE
+    // contoh:
+    // REQ-20260812-ABC123
+    // =====================================================
+
+    const jakartaDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+      .format(new Date())
+      .replace(/-/g, '');
+
+    const randomCode = crypto
+      .randomUUID()
+      .replace(/-/g, '')
+      .substring(0, 6)
+      .toUpperCase();
+
+    const trackingCode =
+      `REQ-${jakartaDate}-${randomCode}`;
+
+    // =====================================================
+    // SIAPKAN URL / STORAGE PATH
+    // =====================================================
+
+    let finalFileUrl: string | undefined;
+    let finalFileName: string;
+    let finalFileSize: string;
+    let finalFileType: string;
+
+    // =====================================================
+    // JIKA GURU UPLOAD FILE
+    // =====================================================
+
+    if (docSourceType === 'UPLOAD' && file) {
+      const safeFileName = file.name
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9._-]/g, '');
+
+      const storagePath =
+        `${trackingCode}/${safeFileName}`;
+
+      const { error: uploadError } =
+        await supabase.storage
+          .from('photocopy-files')
+          .upload(storagePath, file, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType:
+              file.type || 'application/octet-stream',
+          });
+
+      if (uploadError) {
+        console.error(
+          'Storage upload error:',
+          uploadError
+        );
+
+        throw new Error(
+          `Gagal mengunggah dokumen: ${uploadError.message}`
+        );
       }
-    } else {
-      if (!fileUrlInput.trim()) {
-        setErrorMsg('Tautan link URL dokumen wajib diisi.');
-        return;
-      }
+
+      // Karena bucket PRIVATE,
+      // kita hanya simpan path file.
+      finalFileUrl = storagePath;
+
+      finalFileName = file.name;
+
+      finalFileSize =
+        `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+
+      finalFileType =
+        file.type || 'application/octet-stream';
     }
 
-    if (pagesCount <= 0 || copiesCount <= 0) {
-      setErrorMsg('Jumlah halaman dan jumlah salinan harus lebih dari 0.');
-      return;
+    // =====================================================
+    // JIKA GURU MENGGUNAKAN LINK
+    // =====================================================
+
+    else {
+      let formattedUrl = fileUrlInput.trim();
+
+      if (
+        !formattedUrl.startsWith('http://') &&
+        !formattedUrl.startsWith('https://')
+      ) {
+        formattedUrl =
+          `https://${formattedUrl}`;
+      }
+
+      finalFileUrl = formattedUrl;
+      finalFileName =
+        `[LINK URL] ${title.trim()}`;
+      finalFileSize =
+        'Tautan Link URL';
+      finalFileType =
+        'url/link';
+    }
+
+    // =====================================================
+    // SIMPAN DATA KE DATABASE SUPABASE
+    // =====================================================
+
+    const { error: insertError } =
+      await supabase
+        .from('photocopy_requests')
+        .insert({
+          id: trackingCode,
+
+          teacher_name:
+            teacherName.trim(),
+
+          subject_class:
+            subjectClass.trim(),
+
+          title:
+            title.trim(),
+
+          file_name:
+            finalFileName,
+
+          file_size:
+            finalFileSize,
+
+          file_type:
+            finalFileType,
+
+          file_url:
+            finalFileUrl,
+
+          drive_folder_url:
+            LAZUARDI_DRIVE_FOLDER_URL,
+
+          pages_count:
+            pagesCount,
+
+          copies_count:
+            copiesCount,
+
+          total_sheets:
+            calculatedSheets,
+
+          paper_size:
+            paperSize,
+
+          color_option:
+            colorOption,
+
+          print_side:
+            printSide,
+
+          urgency:
+            urgency,
+
+          target_date:
+            targetDate,
+
+          notes:
+            notes.trim() || null,
+
+          status:
+            'MENUNGGU',
+        });
+
+    if (insertError) {
+      console.error(
+        'Database insert error:',
+        insertError
+      );
+
+      throw new Error(
+        `Gagal menyimpan pengajuan: ${insertError.message}`
+      );
+    }
+
+    // =====================================================
+    // BENTUK DATA UNTUK UI
+    // =====================================================
+
+    const newRequest: PhotocopyRequest = {
+      id:
+        trackingCode,
+
+      teacherName:
+        teacherName.trim(),
+
+      subjectClass:
+        subjectClass.trim(),
+
+      title:
+        title.trim(),
+
+      fileName:
+        finalFileName,
+
+      fileSize:
+        finalFileSize,
+
+      fileType:
+        finalFileType,
+
+      fileUrl:
+        finalFileUrl,
+
+      driveFolderUrl:
+        LAZUARDI_DRIVE_FOLDER_URL,
+
+      pagesCount,
+      copiesCount,
+
+      totalSheets:
+        calculatedSheets,
+
+      paperSize,
+      colorOption,
+      printSide,
+      urgency,
+
+      targetDate,
+
+      notes:
+        notes.trim() || undefined,
+
+      status:
+        'MENUNGGU',
+
+      submittedAt:
+        new Date().toISOString(),
+    };
+
+    // =====================================================
+    // SUKSES
+    // =====================================================
+
+    setSubmittedResult(newRequest);
+
+    onSubmitted(newRequest);
+
+  } catch (err: any) {
+    console.error(
+      'Submit error:',
+      err
+    );
+
+    setErrorMsg(
+      err?.message ||
+        'Terjadi kesalahan saat mengirim pengajuan.'
+    );
+  } finally {
+    setIsSubmitting(false);
+  }
+};
     }
 
     setIsSubmitting(true);
