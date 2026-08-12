@@ -251,9 +251,9 @@ export default function App() {
   };
 
   const handleGoToTrack = (code: string) => {
-    setTrackCode(code);
-    setActiveTab('TRACK');
-  };
+  setTrackCode(code);
+  navigateToTab('TRACK');
+};
 
   // Tetap dipertahankan agar cocok dengan props AdminLoginModal
   const handleLoginSuccess = (user: UserAccount) => {
@@ -280,7 +280,7 @@ export default function App() {
 
     setCurrentUser(null);
     setPendingCount(0);
-    setActiveTab('FORM');
+    navigateToTab('FORM');
   };
 
   // =====================================================
@@ -305,8 +305,8 @@ export default function App() {
     <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
 
       <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
+  activeTab={activeTab}
+  setActiveTab={navigateToTab}
         currentUser={currentUser}
         onOpenLogin={() => setShowLoginModal(true)}
         onLogout={handleLogout}
@@ -367,7 +367,7 @@ export default function App() {
           <div className="flex items-center gap-4 text-[11px] text-slate-400">
 
             <button
-              onClick={() => setActiveTab('FORM')}
+              onClick={() => navigateToTab('FORM')}
               className="hover:text-emerald-400 transition-colors"
             >
               Formulir Guru (Publik)
@@ -376,7 +376,7 @@ export default function App() {
             <span>•</span>
 
             <button
-              onClick={() => setActiveTab('TRACK')}
+              onClick={() => navigateToTab('TRACK')}
               className="hover:text-emerald-400 transition-colors"
             >
               Lacak Status
