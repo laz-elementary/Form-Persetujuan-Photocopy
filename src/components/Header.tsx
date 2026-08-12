@@ -25,8 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="bg-slate-900 text-slate-300 px-4 py-1.5 text-xs font-medium flex items-center justify-between border-b border-slate-800">
         <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap">
           <span className="inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
-          <span className="font-semibold text-white">Sistem Layanan Cetak & Fotokopi Bahan Ajar</span>
-          <span className="hidden md:inline text-slate-400">| Portal Publik Guru & Persetujuan Digital Kepala Sekolah</span>
+          <span className="font-semibold text-white">Sistem Layanan Fotokopi Bahan Ajar</span>
         </div>
         <div className="text-[11px] text-slate-400 font-mono hidden sm:block">
           Tahun Ajaran 2026/2027
