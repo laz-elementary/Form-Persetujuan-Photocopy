@@ -14,31 +14,19 @@ export const StatusTracker: React.FC<TrackerProps> = ({ initialTrackingCode = ''
   const [requestData, setRequestData] = useState<PhotocopyRequest | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [showProofModal, setShowProofModal] = useState(false);
-  const [recentRequests, setRecentRequests] = useState<PhotocopyRequest[]>([]);
-
-  useEffect(() => {
-    fetchRecentRequests();
+    useEffect(() => {
     if (initialTrackingCode) {
       handleSearchCode(initialTrackingCode);
     }
   }, [initialTrackingCode]);
 
-  const fetchRecentRequests = async () => {
-    try {
-      const res = await fetch('/api/requests');
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
-        setRecentRequests(json.data.slice(0, 5));
-      }
-    } catch (err) {
-      console.error('Error fetching recent requests:', err);
-    }
-  };
-
   const handleSearchCode = async (codeToSearch: string) => {
     const code = codeToSearch.trim().toUpperCase();
+
     if (!code) {
-      setErrorMsg('Masukkan kode pelacakan (misal: REQ-2026-0811-001)');
+      setErrorMsg(
+        'Masukkan kode pelacakan, misalnya REQ-20260812-ABC123.'
+      );
       return;
     }
 
@@ -47,17 +35,119 @@ export const StatusTracker: React.FC<TrackerProps> = ({ initialTrackingCode = ''
     setRequestData(null);
 
     try {
-      const res = await fetch(`/api/requests/${code}`);
-      const json = await res.json();
+      const { data, error } = await supabase.rpc(
+        'track_photocopy_request',
+        {
+          p_tracking_code: code,
+        }
+      );
 
-      if (json.success && json.data) {
-        setRequestData(json.data);
-      } else {
-        setErrorMsg(json.message || `Kode pengajuan "${code}" tidak ditemukan. Pastikan format kode benar.`);
+      if (error) {
+        console.error('Supabase tracking error:', error);
+
+        setErrorMsg(
+          `Gagal mencari pengajuan: ${error.message}`
+        );
+
+        return;
       }
+
+      if (!data || data.length === 0) {
+        setErrorMsg(
+          `Kode pengajuan "${code}" tidak ditemukan. Pastikan kode sudah benar.`
+        );
+
+        return;
+      }
+
+      const row = data[0];
+
+      const request: PhotocopyRequest = {
+        id: row.id,
+
+        teacherName:
+          row.teacher_name,
+
+        subjectClass:
+          row.subject_class,
+
+        title:
+          row.title,
+
+        // Informasi file asli memang tidak dibuka
+        // pada tracker publik.
+        fileName:
+          'Dokumen bahan ajar',
+
+        fileSize:
+          '',
+
+        fileType:
+          '',
+
+        pagesCount:
+          row.pages_count,
+
+        copiesCount:
+          row.copies_count,
+
+        totalSheets:
+          row.total_sheets,
+
+        paperSize:
+          row.paper_size,
+
+        colorOption:
+          row.color_option,
+
+        printSide:
+          row.print_side,
+
+        urgency:
+          row.urgency,
+
+        targetDate:
+          row.target_date,
+
+        status:
+          row.status,
+
+        submittedAt:
+          row.submitted_at,
+
+        reviewedAt:
+          row.reviewed_at || undefined,
+
+        reviewedBy:
+          row.reviewed_by || undefined,
+
+        rejectionReason:
+          row.rejection_reason || undefined,
+
+        approvalNotes:
+          row.approval_notes || undefined,
+
+        printedAt:
+          row.printed_at || undefined,
+
+        printedBy:
+          row.printed_by || undefined,
+
+        completedAt:
+          row.completed_at || undefined,
+      };
+
+      setRequestData(request);
+
     } catch (err) {
-      console.error('Error searching request:', err);
-      setErrorMsg('Terjadi kesalahan koneksi saat mencari data.');
+      console.error(
+        'Error searching request:',
+        err
+      );
+
+      setErrorMsg(
+        'Terjadi kesalahan saat membaca data pengajuan.'
+      );
     } finally {
       setLoading(false);
     }
