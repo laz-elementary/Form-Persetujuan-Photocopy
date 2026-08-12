@@ -235,33 +235,7 @@ export const StatusTracker: React.FC<TrackerProps> = ({ initialTrackingCode = ''
             </button>
           </form>
 
-          {/* Quick Select Buttons from recent requests */}
-          {recentRequests.length > 0 && (
-            <div className="mt-5 text-left bg-slate-800/60 p-3 rounded-lg border border-slate-700/50">
-              <div className="text-[11px] text-slate-400 font-bold mb-2">
-                Pilih Cepat Pengajuan Terbaru:
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {recentRequests.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => {
-                      setSearchCode(r.id);
-                      handleSearchCode(r.id);
-                    }}
-                    className={`text-xs px-2.5 py-1 rounded border font-mono transition-all flex items-center gap-1.5 ${
-                      requestData?.id === r.id
-                        ? 'bg-blue-600 text-white border-blue-500 font-bold'
-                        : 'bg-slate-700/60 text-slate-300 border-slate-600 hover:bg-slate-700'
-                    }`}
-                  >
-                    <span>{r.id}</span>
-                    <span className="text-[10px] font-sans opacity-70">({r.teacherName.split(' ')[0]})</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          
         </div>
       </div>
 
