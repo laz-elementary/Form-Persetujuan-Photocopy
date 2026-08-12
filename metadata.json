@@ -1,0 +1,6 @@
+{
+  "name": "Form Persetujuan Photocopy Bahan Ajar",
+  "description": "Sistem pengajuan dan persetujuan cetak/fotokopi bahan ajar guru oleh kepala sekolah dan tim resource",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
