@@ -8,15 +8,55 @@ import { AdminManagement } from './components/AdminManagement';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { supabase } from './lib/supabase';
 
+type AppTab = 'FORM' | 'TRACK' | 'KEPSEK' | 'ADMIN';
+
+const TAB_PATHS: Record<AppTab, string> = {
+  FORM: '/',
+  TRACK: '/lacak-status',
+  KEPSEK: '/portal-kepsek',
+  ADMIN: '/admin-kelola',
+};
+
+const getTabFromPath = (): AppTab => {
+  switch (window.location.pathname) {
+    case '/lacak-status':
+      return 'TRACK';
+
+    case '/portal-kepsek':
+      return 'KEPSEK';
+
+    case '/admin-kelola':
+      return 'ADMIN';
+
+    default:
+      return 'FORM';
+  }
+};
 export default function App() {
-  const [activeTab, setActiveTab] =
-    useState<'FORM' | 'TRACK' | 'KEPSEK' | 'ADMIN'>('FORM');
+ const [activeTab, setActiveTab] =
+  useState<AppTab>(() => getTabFromPath());
 
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [trackCode, setTrackCode] = useState('');
   const [pendingCount, setPendingCount] = useState(0);
   const [authLoading, setAuthLoading] = useState(true);
+    const navigateToTab = (
+    tab: AppTab,
+    replace = false
+  ) => {
+    setActiveTab(tab);
+
+    const path = TAB_PATHS[tab];
+
+    if (window.location.pathname !== path) {
+      if (replace) {
+        window.history.replaceState({}, '', path);
+      } else {
+        window.history.pushState({}, '', path);
+      }
+    }
+  };
 
   // =====================================================
   // LOAD STAFF PROFILE DARI SUPABASE
