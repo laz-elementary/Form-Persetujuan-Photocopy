@@ -58,6 +58,24 @@ export default function App() {
     }
   };
 
+    useEffect(() => {
+    const handlePopState = () => {
+      setActiveTab(getTabFromPath());
+    };
+
+    window.addEventListener(
+      'popstate',
+      handlePopState
+    );
+
+    return () => {
+      window.removeEventListener(
+        'popstate',
+        handlePopState
+      );
+    };
+  }, []);
+
   // =====================================================
   // LOAD STAFF PROFILE DARI SUPABASE
   // =====================================================
