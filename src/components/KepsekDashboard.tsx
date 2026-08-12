@@ -20,11 +20,13 @@ import {
 
 interface KepsekDashboardProps {
   reviewerName: string;
+  canReview: boolean;
   onRequestUpdated: () => void;
 }
 
 export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
   reviewerName,
+  canReview,
   onRequestUpdated,
 }) => {
   const [requests, setRequests] = useState<PhotocopyRequest[]>([]);
