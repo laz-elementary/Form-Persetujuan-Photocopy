@@ -221,6 +221,12 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
   const handleReviewAction = async (
     action: 'APPROVE' | 'REJECT'
   ) => {
+    if (!canReview) {
+  setActionError(
+    'Akun Administrator hanya memiliki akses pantau. Persetujuan dan penolakan hanya dapat dilakukan oleh Kepala Sekolah.'
+  );
+  return;
+}
     if (!selectedRequest) return;
 
     setActionError('');
@@ -1056,33 +1062,33 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
                 Batal
               </button>
 
-              <button
-                disabled={
-                  isSubmitting
-                }
-                onClick={() =>
-                  handleReviewAction(
-                    'REJECT'
-                  )
-                }
-                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
-              >
-                Tolak Pengajuan
-              </button>
+              {canReview ? (
+  <>
+    <button
+      disabled={isSubmitting}
+      onClick={() =>
+        handleReviewAction('REJECT')
+      }
+      className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
+    >
+      Tolak Pengajuan
+    </button>
 
-              <button
-                disabled={
-                  isSubmitting
-                }
-                onClick={() =>
-                  handleReviewAction(
-                    'APPROVE'
-                  )
-                }
-                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
-              >
-                Setujui (ACC)
-              </button>
+    <button
+      disabled={isSubmitting}
+      onClick={() =>
+        handleReviewAction('APPROVE')
+      }
+      className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
+    >
+      Setujui (ACC)
+    </button>
+  </>
+) : (
+  <div className="flex-1 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-xs font-semibold">
+    Mode Pantau Admin — Anda dapat mengecek pengajuan dan dokumen, tetapi keputusan Setujui/Tolak hanya dapat dilakukan oleh Kepala Sekolah.
+  </div>
+)}
 
             </div>
 
