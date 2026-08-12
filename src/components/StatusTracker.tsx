@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PhotocopyRequest } from '../types';
+import { supabase } from '../lib/supabase';
 import { Search, Clock, CheckCircle2, XCircle, Printer, FileText, Calendar, ArrowRight, ShieldAlert, Sparkles, RefreshCw, ExternalLink, Link as LinkIcon } from 'lucide-react';
 import { DigitalProofModal } from './DigitalProofModal';
 
