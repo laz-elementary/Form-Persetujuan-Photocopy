@@ -269,17 +269,18 @@ export default function App() {
         )}
 
         {activeTab === 'KEPSEK' && currentUser && (
-          <KepsekDashboard
-            reviewerName={
-              `${currentUser.name} ${
-                currentUser.role === 'KEPSEK'
-                  ? '(Kepala SD Lazuardi)'
-                  : '(Administrator)'
-              }`
-            }
-            onRequestUpdated={fetchPendingCount}
-          />
-        )}
+  <KepsekDashboard
+    reviewerName={
+      `${currentUser.name} ${
+        currentUser.role === 'KEPSEK'
+          ? '(Kepala SD Lazuardi)'
+          : '(Administrator)'
+      }`
+    }
+    canReview={currentUser.role === 'KEPSEK'}
+    onRequestUpdated={fetchPendingCount}
+  />
+)}
 
         {activeTab === 'ADMIN' &&
           currentUser?.role === 'ADMIN' && (
