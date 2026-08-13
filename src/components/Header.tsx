@@ -196,7 +196,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <Building2 className="w-4 h-4" />
-            <span>Admin</span>
+            <span>Admin Resource</span>
           </button>
         )}
       </div>
