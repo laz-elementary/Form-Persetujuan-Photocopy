@@ -298,18 +298,6 @@ export default function App() {
     <AdminResource />
   )}
 
-        {activeTab === 'RESOURCE' && currentUser?.role === 'RESOURCE' && (
-          <div className="max-w-7xl mx-auto px-4 py-10">
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
-              <h2 className="text-2xl font-bold text-slate-900">Admin Resource</h2>
-              <p className="mt-2 text-slate-600">
-                Halaman Resource berhasil dipisahkan dari Admin Kelola.
-                Data pengajuan yang disetujui dan ditolak akan ditampilkan
-                pada tahap berikutnya.
-              </p>
-            </div>
-          </div>
-        )}
       </main>
 
       <footer className="bg-slate-900 text-slate-400 py-8 border-t border-slate-800 text-xs">
