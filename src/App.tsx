@@ -45,6 +45,7 @@ export default function App() {
   const navigateToTab = (tab: AppTab, replace = false) => {
     setActiveTab(tab);
     const path = TAB_PATHS[tab];
+
     if (window.location.pathname !== path) {
       if (replace) {
         window.history.replaceState({}, '', path);
@@ -81,7 +82,9 @@ export default function App() {
         await supabase.auth.signOut();
         setCurrentUser(null);
         navigateToTab('FORM', true);
-        alert('Akun Google ini tidak memiliki akses ke Portal Pengelola.');
+        alert(
+          'Akun Google ini tidak memiliki akses ke Portal Pengelola. Silakan gunakan akun staff yang telah terdaftar.'
+        );
         return;
       }
 
@@ -95,10 +98,10 @@ export default function App() {
           data.role === 'KEPSEK'
             ? 'Kepala Sekolah'
             : data.role === 'RESOURCE'
-            ? 'Admin Resource'
-            : data.role === 'ADMIN'
-            ? 'Administrator SD'
-            : 'Guru',
+              ? 'Admin Resource'
+              : data.role === 'ADMIN'
+                ? 'Administrator SD'
+                : 'Guru',
         avatar:
           authUser?.user_metadata?.avatar_url ||
           authUser?.user_metadata?.picture ||
@@ -283,21 +286,17 @@ export default function App() {
                   ? '(Kepala SD Lazuardi)'
                   : '(Administrator)'
               }`}
-              canReview={currentUser.role === 'KEPSEK'}
               onRequestUpdated={fetchPendingCount}
             />
           )}
 
-        {activeTab === 'ADMIN' &&
-  currentUser?.role === 'ADMIN' && (
-    <AdminManagement />
-  )}
+        {activeTab === 'ADMIN' && currentUser?.role === 'ADMIN' && (
+          <AdminManagement />
+        )}
 
-{activeTab === 'RESOURCE' &&
-  currentUser?.role === 'RESOURCE' && (
-    <AdminResource />
-  )}
-
+        {activeTab === 'RESOURCE' && currentUser?.role === 'RESOURCE' && (
+          <AdminResource />
+        )}
       </main>
 
       <footer className="bg-slate-900 text-slate-400 py-8 border-t border-slate-800 text-xs">
@@ -307,7 +306,9 @@ export default function App() {
               EP
             </div>
             <span className="font-bold text-white text-sm">E-Photocopy</span>
-            <span className="text-slate-500">| Sistem Persetujuan Bahan Ajar Sekolah</span>
+            <span className="text-slate-500">
+              | Sistem Persetujuan Bahan Ajar Sekolah
+            </span>
           </div>
 
           <div className="flex items-center gap-4 text-[11px] text-slate-400">
