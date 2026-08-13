@@ -14,7 +14,7 @@ const TAB_PATHS: Record<AppTab, string> = {
   FORM: '/',
   TRACK: '/lacak-status',
   KEPSEK: '/portal-kepsek',
-  ADMIN: '/admin-kelola',
+  ADMIN: '/admin-resource',
 };
 
 const getTabFromPath = (): AppTab => {
@@ -25,8 +25,9 @@ const getTabFromPath = (): AppTab => {
     case '/portal-kepsek':
       return 'KEPSEK';
 
-    case '/admin-kelola':
-      return 'ADMIN';
+    case '/admin-resource':
+case '/admin-kelola':
+  return 'ADMIN';
 
     default:
       return 'FORM';
@@ -118,9 +119,11 @@ export default function App() {
         username: data.email.split('@')[0],
         role: data.role as UserAccount['role'],
         title:
-          data.role === 'KEPSEK'
-            ? 'Kepala Sekolah'
-            : 'Administrator',
+  data.role === 'KEPSEK'
+    ? 'Kepala Sekolah'
+    : data.role === 'RESOURCE'
+    ? 'Admin Resource'
+    : 'Administrator',
         avatar:
           authUser?.user_metadata?.avatar_url ||
           authUser?.user_metadata?.picture ||
@@ -131,10 +134,12 @@ export default function App() {
       setShowLoginModal(false);
 
       // Otomatis arahkan berdasarkan role
-      if (data.role === 'KEPSEK') {
-        setActiveTab('KEPSEK');
-      } else if (data.role === 'ADMIN') {
-        setActiveTab('ADMIN');
+      title:
+  data.role === 'KEPSEK'
+    ? 'Kepala Sekolah'
+    : data.role === 'RESOURCE'
+    ? 'Admin Resource'
+    : 'Administrator',
       }
     } catch (err) {
       console.error('Error memuat profile staff:', err);
@@ -261,9 +266,13 @@ export default function App() {
     setShowLoginModal(false);
 
     if (user.role === 'KEPSEK') {
-      setActiveTab('KEPSEK');
-    } else if (user.role === 'ADMIN') {
-      setActiveTab('ADMIN');
+  navigateToTab('KEPSEK');
+} else if (
+  user.role === 'ADMIN' ||
+  user.role === 'RESOURCE'
+) {
+  navigateToTab('ADMIN');
+}
     }
   };
 
@@ -341,9 +350,10 @@ export default function App() {
 )}
 
         {activeTab === 'ADMIN' &&
-          currentUser?.role === 'ADMIN' && (
-            <AdminManagement />
-          )}
+  (currentUser?.role === 'ADMIN' ||
+    currentUser?.role === 'RESOURCE') && (
+    <AdminManagement />
+  )}
 
       </main>
 
