@@ -8,7 +8,11 @@ export type PrintSide = 'SINGLE' | 'DOUBLE';
 
 export type Urgency = 'NORMAL' | 'TINGGI';
 
-export type UserRole = 'GURU' | 'KEPSEK' | 'ADMIN';
+export type UserRole =
+  | 'GURU'
+  | 'KEPSEK'
+  | 'ADMIN'
+  | 'RESOURCE';
 
 export interface PhotocopyRequest {
   id: string;
