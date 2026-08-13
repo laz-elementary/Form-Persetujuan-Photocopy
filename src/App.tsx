@@ -134,17 +134,16 @@ export default function App() {
       setShowLoginModal(false);
 
       // Otomatis arahkan berdasarkan role
-      title:
-  data.role === 'KEPSEK'
-    ? 'Kepala Sekolah'
-    : data.role === 'RESOURCE'
-    ? 'Admin Resource'
-    : 'Administrator',
-      }
-    } catch (err) {
-      console.error('Error memuat profile staff:', err);
-      setCurrentUser(null);
-    }
+if (data.role === 'KEPSEK') {
+  navigateToTab('KEPSEK', true);
+} else if (
+  data.role === 'ADMIN' ||
+  data.role === 'RESOURCE'
+) {
+  navigateToTab('ADMIN', true);
+} else {
+  navigateToTab('FORM', true);
+}
   };
 
   // =====================================================
@@ -262,19 +261,18 @@ export default function App() {
 
   // Tetap dipertahankan agar cocok dengan props AdminLoginModal
   const handleLoginSuccess = (user: UserAccount) => {
-    setCurrentUser(user);
-    setShowLoginModal(false);
+  setCurrentUser(user);
+  setShowLoginModal(false);
 
-    if (user.role === 'KEPSEK') {
-  navigateToTab('KEPSEK');
-} else if (
-  user.role === 'ADMIN' ||
-  user.role === 'RESOURCE'
-) {
-  navigateToTab('ADMIN');
-}
-    }
-  };
+  if (user.role === 'KEPSEK') {
+    navigateToTab('KEPSEK');
+  } else if (
+    user.role === 'ADMIN' ||
+    user.role === 'RESOURCE'
+  ) {
+    navigateToTab('ADMIN');
+  }
+};
 
   // =====================================================
   // LOGOUT GOOGLE
