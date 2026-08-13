@@ -8,12 +8,7 @@ import { AdminManagement } from './components/AdminManagement';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { supabase } from './lib/supabase';
 
-type AppTab =
-  | 'FORM'
-  | 'TRACK'
-  | 'KEPSEK'
-  | 'ADMIN'
-  | 'RESOURCE';
+type AppTab = 'FORM' | 'TRACK' | 'KEPSEK' | 'ADMIN' | 'RESOURCE';
 
 const TAB_PATHS: Record<AppTab, string> = {
   FORM: '/',
@@ -27,37 +22,28 @@ const getTabFromPath = (): AppTab => {
   switch (window.location.pathname) {
     case '/lacak-status':
       return 'TRACK';
-
     case '/portal-kepsek':
       return 'KEPSEK';
-
     case '/admin-kelola':
       return 'ADMIN';
-
     case '/admin-resource':
       return 'RESOURCE';
-
     default:
       return 'FORM';
   }
 };
-export default function App() {
- const [activeTab, setActiveTab] =
-  useState<AppTab>(() => getTabFromPath());
 
+export default function App() {
+  const [activeTab, setActiveTab] = useState<AppTab>(() => getTabFromPath());
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [trackCode, setTrackCode] = useState('');
   const [pendingCount, setPendingCount] = useState(0);
   const [authLoading, setAuthLoading] = useState(true);
-    const navigateToTab = (
-    tab: AppTab,
-    replace = false
-  ) => {
+
+  const navigateToTab = (tab: AppTab, replace = false) => {
     setActiveTab(tab);
-
     const path = TAB_PATHS[tab];
-
     if (window.location.pathname !== path) {
       if (replace) {
         window.history.replaceState({}, '', path);
@@ -67,27 +53,11 @@ export default function App() {
     }
   };
 
-    useEffect(() => {
-    const handlePopState = () => {
-      setActiveTab(getTabFromPath());
-    };
-
-    window.addEventListener(
-      'popstate',
-      handlePopState
-    );
-
-    return () => {
-      window.removeEventListener(
-        'popstate',
-        handlePopState
-      );
-    };
+  useEffect(() => {
+    const handlePopState = () => setActiveTab(getTabFromPath());
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
-
-  // =====================================================
-  // LOAD STAFF PROFILE DARI SUPABASE
-  // =====================================================
 
   const loadStaffProfile = async (email: string, authUser: any) => {
     try {
@@ -102,21 +72,15 @@ export default function App() {
         console.error('Gagal membaca staff_access:', error);
         await supabase.auth.signOut();
         setCurrentUser(null);
-        setActiveTab('FORM');
+        navigateToTab('FORM', true);
         return;
       }
 
-      // Login Google berhasil, tetapi akun tidak terdaftar
       if (!data) {
         await supabase.auth.signOut();
-
         setCurrentUser(null);
-        setActiveTab('FORM');
-
-        alert(
-          'Akun Google ini tidak memiliki akses ke Portal Pengelola. Silakan gunakan akun Kepala Sekolah atau Administrator yang telah terdaftar.'
-        );
-
+        navigateToTab('FORM', true);
+        alert('Akun Google ini tidak memiliki akses ke Portal Pengelola.');
         return;
       }
 
@@ -127,11 +91,13 @@ export default function App() {
         username: data.email.split('@')[0],
         role: data.role as UserAccount['role'],
         title:
-  data.role === 'KEPSEK'
-    ? 'Kepala Sekolah'
-    : data.role === 'RESOURCE'
-    ? 'Admin Resource'
-    : 'Administrator',
+          data.role === 'KEPSEK'
+            ? 'Kepala Sekolah'
+            : data.role === 'RESOURCE'
+            ? 'Admin Resource'
+            : data.role === 'ADMIN'
+            ? 'Administrator SD'
+            : 'Guru',
         avatar:
           authUser?.user_metadata?.avatar_url ||
           authUser?.user_metadata?.picture ||
@@ -139,23 +105,23 @@ export default function App() {
       };
 
       setCurrentUser(staffUser);
-setShowLoginModal(false);
+      setShowLoginModal(false);
 
-// Otomatis arahkan berdasarkan role
-if (data.role === 'KEPSEK') {
-  navigateToTab('KEPSEK', true);
-} else if (data.role === 'ADMIN') {
-  navigateToTab('ADMIN', true);
-} else if (data.role === 'RESOURCE') {
-  navigateToTab('RESOURCE', true);
-} else {
-  navigateToTab('FORM', true);
-}
+      if (data.role === 'KEPSEK') {
+        navigateToTab('KEPSEK', true);
+      } else if (data.role === 'ADMIN') {
+        navigateToTab('ADMIN', true);
+      } else if (data.role === 'RESOURCE') {
+        navigateToTab('RESOURCE', true);
+      } else {
+        navigateToTab('FORM', true);
+      }
+    } catch (err) {
+      console.error('Error memuat profile staff:', err);
+      setCurrentUser(null);
+      navigateToTab('FORM', true);
+    }
   };
-
-  // =====================================================
-  // CEK SESSION GOOGLE SAAT WEB DIBUKA
-  // =====================================================
 
   useEffect(() => {
     let mounted = true;
@@ -176,9 +142,7 @@ if (data.role === 'KEPSEK') {
       } catch (err) {
         console.error('Gagal mengecek session:', err);
       } finally {
-        if (mounted) {
-          setAuthLoading(false);
-        }
+        if (mounted) setAuthLoading(false);
       }
     };
 
@@ -193,7 +157,7 @@ if (data.role === 'KEPSEK') {
         await loadStaffProfile(session.user.email, session.user);
       } else {
         setCurrentUser(null);
-        setActiveTab('FORM');
+        navigateToTab('FORM', true);
       }
 
       setAuthLoading(false);
@@ -205,11 +169,6 @@ if (data.role === 'KEPSEK') {
     };
   }, []);
 
-  // =====================================================
-  // HITUNG PENGAJUAN MENUNGGU
-  // HANYA UNTUK STAFF YANG SUDAH LOGIN
-  // =====================================================
-
   const fetchPendingCount = async () => {
     if (!currentUser) {
       setPendingCount(0);
@@ -219,10 +178,7 @@ if (data.role === 'KEPSEK') {
     try {
       const { count, error } = await supabase
         .from('photocopy_requests')
-        .select('*', {
-          count: 'exact',
-          head: true,
-        })
+        .select('*', { count: 'exact', head: true })
         .eq('status', 'MENUNGGU');
 
       if (error) {
@@ -243,46 +199,33 @@ if (data.role === 'KEPSEK') {
     }
 
     fetchPendingCount();
-
-    const interval = setInterval(() => {
-      fetchPendingCount();
-    }, 10000);
-
+    const interval = setInterval(fetchPendingCount, 10000);
     return () => clearInterval(interval);
   }, [currentUser]);
 
-  // =====================================================
-  // FORM & TRACKING
-  // =====================================================
-
   const handleSubmittedNewRequest = (_newReq: PhotocopyRequest) => {
-    if (currentUser) {
-      fetchPendingCount();
-    }
+    if (currentUser) fetchPendingCount();
   };
 
   const handleGoToTrack = (code: string) => {
-  setTrackCode(code);
-  navigateToTab('TRACK');
-};
+    setTrackCode(code);
+    navigateToTab('TRACK');
+  };
 
-  // Tetap dipertahankan agar cocok dengan props AdminLoginModal
   const handleLoginSuccess = (user: UserAccount) => {
-  setCurrentUser(user);
-  setShowLoginModal(false);
+    setCurrentUser(user);
+    setShowLoginModal(false);
 
-  if (user.role === 'KEPSEK') {
-    navigateToTab('KEPSEK');
-  } else if (user.role === 'ADMIN') {
-    navigateToTab('ADMIN');
-  } else if (user.role === 'RESOURCE') {
-    navigateToTab('RESOURCE');
-  }
-};
-
-  // =====================================================
-  // LOGOUT GOOGLE
-  // =====================================================
+    if (user.role === 'KEPSEK') {
+      navigateToTab('KEPSEK');
+    } else if (user.role === 'ADMIN') {
+      navigateToTab('ADMIN');
+    } else if (user.role === 'RESOURCE') {
+      navigateToTab('RESOURCE');
+    } else {
+      navigateToTab('FORM');
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -296,19 +239,12 @@ if (data.role === 'KEPSEK') {
     navigateToTab('FORM');
   };
 
-  // =====================================================
-  // LOADING SESSION
-  // =====================================================
-
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center">
         <div className="text-center">
           <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-3" />
-
-          <p className="text-sm font-semibold text-slate-700">
-            Memeriksa akun...
-          </p>
+          <p className="text-sm font-semibold text-slate-700">Memeriksa akun...</p>
         </div>
       </div>
     );
@@ -316,10 +252,9 @@ if (data.role === 'KEPSEK') {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
-
       <Header
-  activeTab={activeTab}
-  setActiveTab={navigateToTab}
+        activeTab={activeTab}
+        setActiveTab={navigateToTab}
         currentUser={currentUser}
         onOpenLogin={() => setShowLoginModal(true)}
         onLogout={handleLogout}
@@ -327,7 +262,6 @@ if (data.role === 'KEPSEK') {
       />
 
       <main className="flex-1 pb-16">
-
         {activeTab === 'FORM' && (
           <TeacherSubmissionForm
             onSubmitted={handleSubmittedNewRequest}
@@ -339,47 +273,49 @@ if (data.role === 'KEPSEK') {
           <StatusTracker initialTrackingCode={trackCode} />
         )}
 
-        {activeTab === 'KEPSEK' && currentUser && (
-  <KepsekDashboard
-    reviewerName={
-      `${currentUser.name} ${
-        currentUser.role === 'KEPSEK'
-          ? '(Kepala SD Lazuardi)'
-          : '(Administrator)'
-      }`
-    }
-    canReview={currentUser.role === 'KEPSEK'}
-    onRequestUpdated={fetchPendingCount}
-  />
-)}
+        {activeTab === 'KEPSEK' &&
+          currentUser &&
+          (currentUser.role === 'KEPSEK' || currentUser.role === 'ADMIN') && (
+            <KepsekDashboard
+              reviewerName={`${currentUser.name} ${
+                currentUser.role === 'KEPSEK'
+                  ? '(Kepala SD Lazuardi)'
+                  : '(Administrator)'
+              }`}
+              canReview={currentUser.role === 'KEPSEK'}
+              onRequestUpdated={fetchPendingCount}
+            />
+          )}
 
-        {activeTab === 'ADMIN' &&
-  (currentUser?.role === 'ADMIN' ||
-    currentUser?.role === 'RESOURCE') && (
-    <AdminManagement />
-  )}
+        {activeTab === 'ADMIN' && currentUser?.role === 'ADMIN' && (
+          <AdminManagement />
+        )}
 
+        {activeTab === 'RESOURCE' && currentUser?.role === 'RESOURCE' && (
+          <div className="max-w-7xl mx-auto px-4 py-10">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+              <h2 className="text-2xl font-bold text-slate-900">Admin Resource</h2>
+              <p className="mt-2 text-slate-600">
+                Halaman Resource berhasil dipisahkan dari Admin Kelola.
+                Data pengajuan yang disetujui dan ditolak akan ditampilkan
+                pada tahap berikutnya.
+              </p>
+            </div>
+          </div>
+        )}
       </main>
 
       <footer className="bg-slate-900 text-slate-400 py-8 border-t border-slate-800 text-xs">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-lg bg-emerald-500 text-slate-950 font-black flex items-center justify-center text-[10px]">
               EP
             </div>
-
-            <span className="font-bold text-white text-sm">
-              E-Photocopy
-            </span>
-
-            <span className="text-slate-500">
-              | Sistem Persetujuan Bahan Ajar Sekolah
-            </span>
+            <span className="font-bold text-white text-sm">E-Photocopy</span>
+            <span className="text-slate-500">| Sistem Persetujuan Bahan Ajar Sekolah</span>
           </div>
 
           <div className="flex items-center gap-4 text-[11px] text-slate-400">
-
             <button
               onClick={() => navigateToTab('FORM')}
               className="hover:text-emerald-400 transition-colors"
@@ -396,19 +332,18 @@ if (data.role === 'KEPSEK') {
               Lacak Status
             </button>
 
-            <span>•</span>
-
             {!currentUser && (
-              <button
-                onClick={() => setShowLoginModal(true)}
-                className="hover:text-emerald-400 transition-colors"
-              >
-                Portal Pengelola & Kepala Sekolah
-              </button>
+              <>
+                <span>•</span>
+                <button
+                  onClick={() => setShowLoginModal(true)}
+                  className="hover:text-emerald-400 transition-colors"
+                >
+                  Portal Pengelola & Kepala Sekolah
+                </button>
+              </>
             )}
-
           </div>
-
         </div>
       </footer>
 
@@ -418,7 +353,6 @@ if (data.role === 'KEPSEK') {
           onClose={() => setShowLoginModal(false)}
         />
       )}
-
     </div>
   );
 }
