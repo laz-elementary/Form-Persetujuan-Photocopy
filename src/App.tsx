@@ -5,6 +5,7 @@ import { TeacherSubmissionForm } from './components/TeacherSubmissionForm';
 import { StatusTracker } from './components/StatusTracker';
 import { KepsekDashboard } from './components/KepsekDashboard';
 import { AdminManagement } from './components/AdminManagement';
+import { AdminResource } from './components/AdminResource';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { supabase } from './lib/supabase';
 
@@ -287,9 +288,15 @@ export default function App() {
             />
           )}
 
-        {activeTab === 'ADMIN' && currentUser?.role === 'ADMIN' && (
-          <AdminManagement />
-        )}
+        {activeTab === 'ADMIN' &&
+  currentUser?.role === 'ADMIN' && (
+    <AdminManagement />
+  )}
+
+{activeTab === 'RESOURCE' &&
+  currentUser?.role === 'RESOURCE' && (
+    <AdminResource />
+  )}
 
         {activeTab === 'RESOURCE' && currentUser?.role === 'RESOURCE' && (
           <div className="max-w-7xl mx-auto px-4 py-10">
