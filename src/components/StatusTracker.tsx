@@ -16,6 +16,7 @@ import {
   Copy,
   ShieldCheck,
   History,
+  Search,
 } from 'lucide-react';
 
 interface StatusTrackerProps {
@@ -37,6 +38,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
   const [selectedRequest, setSelectedRequest] =
     useState<PhotocopyRequest | null>(null);
   const [filter, setFilter] = useState<HistoryFilter>('SEMUA');
+  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [copiedId, setCopiedId] = useState('');
@@ -229,12 +231,22 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
   );
 
   const filteredRequests = useMemo(() => {
-    if (filter === 'SEMUA') return requests;
+    const query = searchTerm.trim().toLowerCase();
 
-    return requests.filter(
-      (request) => request.status === filter
-    );
-  }, [requests, filter]);
+    return requests.filter((request) => {
+      const matchesStatus =
+        filter === 'SEMUA' || request.status === filter;
+
+      const matchesSearch =
+        !query ||
+        request.id.toLowerCase().includes(query) ||
+        request.teacherName.toLowerCase().includes(query) ||
+        request.subjectClass.toLowerCase().includes(query) ||
+        request.title.toLowerCase().includes(query);
+
+      return matchesStatus && matchesSearch;
+    });
+  }, [requests, filter, searchTerm]);
 
   const filters: Array<{
     value: HistoryFilter;
@@ -355,6 +367,43 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
           value={counts.DITOLAK}
           className="bg-red-50 border-red-200 text-red-800"
         />
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl p-4 mb-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Cari Tracking ID, nama guru, kelas/mapel, atau judul bahan..."
+              className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            />
+
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                title="Hapus pencarian"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {searchTerm && (
+            <div className="text-xs text-slate-500 whitespace-nowrap">
+              Ditemukan{' '}
+              <strong className="text-slate-800">
+                {filteredRequests.length}
+              </strong>{' '}
+              pengajuan
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-3 mb-5 shadow-sm overflow-x-auto">
