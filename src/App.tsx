@@ -8,13 +8,19 @@ import { AdminManagement } from './components/AdminManagement';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { supabase } from './lib/supabase';
 
-type AppTab = 'FORM' | 'TRACK' | 'KEPSEK' | 'ADMIN';
+type AppTab =
+  | 'FORM'
+  | 'TRACK'
+  | 'KEPSEK'
+  | 'ADMIN'
+  | 'RESOURCE';
 
 const TAB_PATHS: Record<AppTab, string> = {
   FORM: '/',
   TRACK: '/lacak-status',
   KEPSEK: '/portal-kepsek',
-  ADMIN: '/admin-resource',
+  ADMIN: '/admin-kelola',
+  RESOURCE: '/admin-resource',
 };
 
 const getTabFromPath = (): AppTab => {
@@ -25,9 +31,11 @@ const getTabFromPath = (): AppTab => {
     case '/portal-kepsek':
       return 'KEPSEK';
 
+    case '/admin-kelola':
+      return 'ADMIN';
+
     case '/admin-resource':
-case '/admin-kelola':
-  return 'ADMIN';
+      return 'RESOURCE';
 
     default:
       return 'FORM';
@@ -131,16 +139,15 @@ export default function App() {
       };
 
       setCurrentUser(staffUser);
-      setShowLoginModal(false);
+setShowLoginModal(false);
 
-      // Otomatis arahkan berdasarkan role
+// Otomatis arahkan berdasarkan role
 if (data.role === 'KEPSEK') {
   navigateToTab('KEPSEK', true);
-} else if (
-  data.role === 'ADMIN' ||
-  data.role === 'RESOURCE'
-) {
+} else if (data.role === 'ADMIN') {
   navigateToTab('ADMIN', true);
+} else if (data.role === 'RESOURCE') {
+  navigateToTab('RESOURCE', true);
 } else {
   navigateToTab('FORM', true);
 }
@@ -266,11 +273,10 @@ if (data.role === 'KEPSEK') {
 
   if (user.role === 'KEPSEK') {
     navigateToTab('KEPSEK');
-  } else if (
-    user.role === 'ADMIN' ||
-    user.role === 'RESOURCE'
-  ) {
+  } else if (user.role === 'ADMIN') {
     navigateToTab('ADMIN');
+  } else if (user.role === 'RESOURCE') {
+    navigateToTab('RESOURCE');
   }
 };
 
