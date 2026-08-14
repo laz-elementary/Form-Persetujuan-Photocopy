@@ -119,6 +119,10 @@ const completedCount = requests.filter(
     (r) =>
       r.status === 'DISETUJUI' ||
       r.status === 'SEDANG_DICETAK'
+  )
+  .reduce(
+    (total, r) => total + (r.totalSheets || 0),
+    0
   );
 
   const filtered = useMemo(() => {
