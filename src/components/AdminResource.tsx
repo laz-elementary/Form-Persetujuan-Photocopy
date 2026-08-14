@@ -12,9 +12,18 @@ import {
   ExternalLink,
   AlertCircle,
   X,
+  Printer,
+  Play,
+  History,
+  ShieldCheck,
 } from 'lucide-react';
 
-type ResourceFilter = 'ALL' | 'DISETUJUI' | 'DITOLAK';
+type ResourceFilter =
+  | 'ALL'
+  | 'DISETUJUI'
+  | 'SEDANG_DICETAK'
+  | 'SELESAI'
+  | 'DITOLAK';
 
 export const AdminResource: React.FC = () => {
   const [requests, setRequests] = useState<PhotocopyRequest[]>([]);
@@ -26,6 +35,9 @@ export const AdminResource: React.FC = () => {
     useState<PhotocopyRequest | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [openingFile, setOpeningFile] = useState(false);
+  const [processingId, setProcessingId] =
+    useState<string | null>(null);
+  const [msg, setMsg] = useState('');
 
   const mapRequest = (row: any): PhotocopyRequest => ({
     id: row.id,
@@ -117,12 +129,59 @@ export const AdminResource: React.FC = () => {
     });
   }, [requests, search, selectedStatus]);
 
+  const updatePrintStatus = async (
+    request: PhotocopyRequest,
+    newStatus: 'SEDANG_DICETAK' | 'SELESAI'
+  ) => {
+    const confirmation =
+      newStatus === 'SEDANG_DICETAK'
+        ? `Mulai proses fotokopi "${request.title}"?`
+        : `Tandai "${request.title}" sebagai selesai dicetak?`;
+
+    if (!window.confirm(confirmation)) return;
+
+    setProcessingId(request.id);
+    setErrorMsg('');
+    setMsg('');
+
+    try {
+      const { error } = await supabase.rpc(
+        'resource_update_print_status',
+        {
+          p_request_id: request.id,
+          p_new_status: newStatus,
+        }
+      );
+
+      if (error) throw error;
+
+      if (newStatus === 'SEDANG_DICETAK') {
+        setMsg(`${request.id} sekarang sedang diproses oleh Resource.`);
+        setSelectedStatus('SEDANG_DICETAK');
+      } else {
+        setMsg(`${request.id} selesai dicetak dan masuk Riwayat Fotokopi.`);
+        setSelectedStatus('SELESAI');
+      }
+
+      setSelectedRequest(null);
+      await fetchRequests();
+    } catch (err: any) {
+      console.error('Resource update error:', err);
+      setErrorMsg(
+        err?.message ||
+          'Gagal memperbarui status pencetakan.'
+      );
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
   const handleOpenDocument = async (
     request: PhotocopyRequest
   ) => {
-    if (request.status !== 'DISETUJUI') {
+    if (request.status === 'DITOLAK') {
       setErrorMsg(
-        'Dokumen pengajuan yang ditolak tidak dibuka melalui Admin Resource.'
+        'Dokumen yang ditolak tidak masuk proses fotokopi Resource.'
       );
       return;
     }
@@ -175,7 +234,25 @@ export const AdminResource: React.FC = () => {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 border border-green-200 text-green-700 rounded-lg text-[10px] font-bold">
           <CheckCircle2 className="w-3 h-3" />
-          DISETUJUI
+          SIAP DIPROSES
+        </span>
+      );
+    }
+
+    if (status === 'SEDANG_DICETAK') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 border border-blue-200 text-blue-700 rounded-lg text-[10px] font-bold">
+          <Printer className="w-3 h-3" />
+          SEDANG DICETAK
+        </span>
+      );
+    }
+
+    if (status === 'SELESAI') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[10px] font-bold">
+          <History className="w-3 h-3" />
+          PERNAH DIFOTOKOPI
         </span>
       );
     }
@@ -233,6 +310,19 @@ export const AdminResource: React.FC = () => {
         </button>
       </div>
 
+      {msg && (
+        <div className="p-4 bg-green-50 border border-green-200 text-green-900 rounded-xl text-xs font-semibold flex items-center justify-between gap-3">
+          <span>{msg}</span>
+          <button
+            type="button"
+            onClick={() => setMsg('')}
+            className="font-bold underline"
+          >
+            Tutup
+          </button>
+        </div>
+      )}
+
       {errorMsg && (
         <div className="p-4 bg-red-50 border border-red-200 text-red-800 rounded-xl text-xs font-semibold flex gap-2 items-center">
           <AlertCircle className="w-4 h-4 shrink-0" />
@@ -247,21 +337,43 @@ export const AdminResource: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <button
           type="button"
           onClick={() => setSelectedStatus('DISETUJUI')}
           className="text-left bg-green-50 border border-green-200 rounded-xl p-5"
         >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-green-700 uppercase">
-              Disetujui
-            </span>
-            <CheckCircle2 className="w-5 h-5 text-green-600" />
+          <div className="text-xs font-bold text-green-700 uppercase">
+            Siap Diproses
           </div>
-
           <div className="text-3xl font-bold text-green-900 mt-2">
             {approvedCount}
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSelectedStatus('SEDANG_DICETAK')}
+          className="text-left bg-blue-50 border border-blue-200 rounded-xl p-5"
+        >
+          <div className="text-xs font-bold text-blue-700 uppercase">
+            Sedang Dicetak
+          </div>
+          <div className="text-3xl font-bold text-blue-900 mt-2">
+            {printingCount}
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSelectedStatus('SELESAI')}
+          className="text-left bg-slate-50 border border-slate-200 rounded-xl p-5"
+        >
+          <div className="text-xs font-bold text-slate-600 uppercase">
+            Riwayat Fotokopi
+          </div>
+          <div className="text-3xl font-bold text-slate-900 mt-2">
+            {completedCount}
           </div>
         </button>
 
@@ -270,30 +382,21 @@ export const AdminResource: React.FC = () => {
           onClick={() => setSelectedStatus('DITOLAK')}
           className="text-left bg-red-50 border border-red-200 rounded-xl p-5"
         >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-red-700 uppercase">
-              Ditolak
-            </span>
-            <XCircle className="w-5 h-5 text-red-600" />
+          <div className="text-xs font-bold text-red-700 uppercase">
+            Ditolak
           </div>
-
           <div className="text-3xl font-bold text-red-900 mt-2">
             {rejectedCount}
           </div>
         </button>
 
         <div className="bg-slate-900 text-white border border-slate-800 rounded-xl p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase">
-              HVS Disetujui
-            </span>
-            <FileText className="w-5 h-5 text-indigo-300" />
+          <div className="text-xs font-bold text-slate-400 uppercase">
+            HVS Antrean
           </div>
-
           <div className="text-3xl font-bold text-indigo-300 mt-2">
             {approvedSheets}
           </div>
-
           <div className="text-[10px] text-slate-400">
             lembar
           </div>
@@ -315,8 +418,10 @@ export const AdminResource: React.FC = () => {
         <div className="flex items-center gap-2 flex-wrap">
           {(
             [
-              ['ALL', 'Semua Keputusan'],
-              ['DISETUJUI', 'Disetujui'],
+              ['ALL', 'Semua'],
+              ['DISETUJUI', 'Siap Diproses'],
+              ['SEDANG_DICETAK', 'Sedang Dicetak'],
+              ['SELESAI', 'Riwayat'],
               ['DITOLAK', 'Ditolak'],
             ] as const
           ).map(([value, label]) => (
@@ -527,7 +632,7 @@ export const AdminResource: React.FC = () => {
                 />
               )}
 
-              {selectedRequest.status === 'DISETUJUI' &&
+              {selectedRequest.status !== 'DITOLAK' &&
                 selectedRequest.approvalNotes && (
                   <DetailBox
                     label="Catatan Persetujuan Kepala Sekolah"
@@ -556,7 +661,7 @@ export const AdminResource: React.FC = () => {
                 </div>
               </div>
 
-              {selectedRequest.status === 'DISETUJUI' &&
+              {selectedRequest.status !== 'DITOLAK' &&
                 selectedRequest.fileUrl && (
                   <button
                     type="button"
@@ -573,9 +678,62 @@ export const AdminResource: React.FC = () => {
                     )}
                     {openingFile
                       ? 'Membuka Dokumen...'
-                      : 'Buka Dokumen Bahan Ajar'}
+                      : selectedRequest.status === 'SELESAI'
+                      ? 'Buka File yang Pernah Difotokopi'
+                      : 'Buka Dokumen untuk Dicetak'}
                   </button>
                 )}
+
+              {selectedRequest.status === 'DISETUJUI' && (
+                <button
+                  type="button"
+                  disabled={processingId === selectedRequest.id}
+                  onClick={() =>
+                    updatePrintStatus(
+                      selectedRequest,
+                      'SEDANG_DICETAK'
+                    )
+                  }
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Play className="w-4 h-4" />
+                  Mulai Proses Fotokopi
+                </button>
+              )}
+
+              {selectedRequest.status === 'SEDANG_DICETAK' && (
+                <button
+                  type="button"
+                  disabled={processingId === selectedRequest.id}
+                  onClick={() =>
+                    updatePrintStatus(
+                      selectedRequest,
+                      'SELESAI'
+                    )
+                  }
+                  className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Tandai Selesai Dicetak
+                </button>
+              )}
+
+              {selectedRequest.status === 'SELESAI' && (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
+                  <History className="w-6 h-6 text-green-600 mx-auto mb-2" />
+                  <div className="text-xs font-bold text-green-800">
+                    PERNAH DIFOTOKOPI
+                  </div>
+                  {selectedRequest.completedAt && (
+                    <div className="text-[11px] text-green-700 mt-2">
+                      Selesai pada:{' '}
+                      <strong>
+                        {formatDate(selectedRequest.completedAt)}
+                      </strong>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
