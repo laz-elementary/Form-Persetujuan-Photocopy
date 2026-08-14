@@ -102,13 +102,24 @@ export const AdminResource: React.FC = () => {
     (r) => r.status === 'DISETUJUI'
   ).length;
 
+  const printingCount = requests.filter(
+  (r) => r.status === 'SEDANG_DICETAK'
+).length;
+
+const completedCount = requests.filter(
+  (r) => r.status === 'SELESAI'
+).length;
+
   const rejectedCount = requests.filter(
     (r) => r.status === 'DITOLAK'
   ).length;
 
   const approvedSheets = requests
-    .filter((r) => r.status === 'DISETUJUI')
-    .reduce((total, r) => total + (r.totalSheets || 0), 0);
+  .filter(
+    (r) =>
+      r.status === 'DISETUJUI' ||
+      r.status === 'SEDANG_DICETAK'
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
