@@ -351,11 +351,10 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         r.status === 'SELESAI'
     ).length;
 
-  const rejectedCount =
-    requests.filter(
-      (r) =>
-        r.status === 'DITOLAK'
-    ).length;
+  const completedCount =
+  requests.filter(
+    (r) => r.status === 'SELESAI'
+  ).length;
 
   const totalSheetsApproved =
     requests
@@ -396,6 +395,8 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
               ].includes(
                 r.status
               )) ||
+            (selectedStatus === 'SELESAI' &&
+  r.status === 'SELESAI') ||
             (selectedStatus ===
               'DITOLAK' &&
               r.status ===
@@ -586,11 +587,12 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         <div className="flex gap-1 bg-slate-100 p-1 rounded-lg w-full lg:w-auto overflow-x-auto text-xs">
 
           {[
-            ['MENUNGGU', `Menunggu (${pendingCount})`],
-            ['DISETUJUI', `Disetujui (${approvedCount})`],
-            ['DITOLAK', `Ditolak (${rejectedCount})`],
-            ['ALL', `Semua (${requests.length})`],
-          ].map(
+  ['MENUNGGU', `Menunggu (${pendingCount})`],
+  ['DISETUJUI', `Disetujui (${approvedCount})`],
+  ['SELESAI', `Riwayat Fotokopi (${completedCount})`],
+  ['DITOLAK', `Ditolak (${rejectedCount})`],
+  ['ALL', `Semua (${requests.length})`],
+].map(
             ([value, label]) => (
               <button
                 key={value}
@@ -790,7 +792,11 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
                               : 'bg-green-100 text-green-700'
                           }`}
                         >
-                          {req.status}
+                          {req.status === 'SELESAI'
+  ? 'PERNAH DIFOTOKOPI'
+  : req.status === 'SEDANG_DICETAK'
+  ? 'SEDANG DIPROSES'
+  : req.status}
                         </span>
 
                       </td>
@@ -933,7 +939,30 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
                 </div>
 
               </div>
+{selectedRequest.status === 'SELESAI' && (
+  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+    <div className="flex items-center gap-2 text-green-800 font-bold text-xs">
+      <CheckCircle2 className="w-4 h-4" />
+      PERNAH DIFOTOKOPI
+    </div>
 
+    <div className="text-xs text-green-700 mt-2">
+      Pengajuan ini telah selesai diproses dan menjadi bagian dari
+      riwayat fotokopi sekolah.
+    </div>
+
+    {selectedRequest.completedAt && (
+      <div className="text-[11px] text-green-700 mt-2">
+        Selesai pada:{' '}
+        <strong>
+          {new Date(
+            selectedRequest.completedAt
+          ).toLocaleString('id-ID')}
+        </strong>
+      </div>
+    )}
+  </div>
+)}
               {/* OPEN DOCUMENT */}
               <button
                 type="button"
