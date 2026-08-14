@@ -23,6 +23,7 @@ type AdminFilter =
   | 'DISETUJUI'
   | 'SEDANG_DICETAK'
   | 'SELESAI'
+  | 'DITOLAK'
   | 'ALL';
 
 export const AdminManagement: React.FC = () => {
@@ -83,6 +84,7 @@ export const AdminManagement: React.FC = () => {
           'DISETUJUI',
           'SEDANG_DICETAK',
           'SELESAI',
+          'DITOLAK',
         ])
         .order('submitted_at', { ascending: false });
 
@@ -113,6 +115,10 @@ export const AdminManagement: React.FC = () => {
 
   const completedCount = requests.filter(
     (r) => r.status === 'SELESAI'
+  ).length;
+
+  const rejectedCount = requests.filter(
+    (r) => r.status === 'DITOLAK'
   ).length;
 
   const totalCompletedSheets = requests
@@ -258,6 +264,7 @@ export const AdminManagement: React.FC = () => {
       'Dicetak Oleh',
       'Mulai Dicetak',
       'Selesai Dicetak',
+      'Alasan Ditolak',
     ];
 
     const rows = requests.map((r) => [
@@ -286,6 +293,7 @@ export const AdminManagement: React.FC = () => {
             'id-ID'
           )}"`
         : '',
+      `"${r.rejectionReason || ''}"`,
     ]);
 
     const csvContent = [
@@ -327,6 +335,15 @@ export const AdminManagement: React.FC = () => {
         <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 border border-blue-200 text-blue-700 rounded-lg text-[10px] font-bold">
           <Printer className="w-3 h-3" />
           SEDANG DICETAK
+        </span>
+      );
+    }
+
+    if (status === 'DITOLAK') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-100 border border-red-200 text-red-700 rounded-lg text-[10px] font-bold">
+          <X className="w-3 h-3" />
+          DITOLAK
         </span>
       );
     }
@@ -421,7 +438,7 @@ export const AdminManagement: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <button
           type="button"
           onClick={() => setSelectedStatus('DISETUJUI')}
@@ -472,6 +489,22 @@ export const AdminManagement: React.FC = () => {
           </div>
         </button>
 
+        <button
+          type="button"
+          onClick={() => setSelectedStatus('DITOLAK')}
+          className="text-left bg-red-50 border border-red-200 rounded-xl p-5"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-red-700 uppercase">
+              Ditolak
+            </span>
+            <X className="w-5 h-5 text-red-600" />
+          </div>
+          <div className="text-3xl font-bold text-red-900 mt-2">
+            {rejectedCount}
+          </div>
+        </button>
+
         <div className="bg-slate-900 text-white border border-slate-800 rounded-xl p-5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-400 uppercase">
@@ -502,6 +535,10 @@ export const AdminManagement: React.FC = () => {
             [
               'SELESAI',
               `Riwayat Fotokopi (${completedCount})`,
+            ],
+            [
+              'DITOLAK',
+              `Ditolak (${rejectedCount})`,
             ],
             ['ALL', `Semua (${requests.length})`],
           ].map(([status, label]) => (
@@ -691,11 +728,7 @@ export const AdminManagement: React.FC = () => {
                 {statusBadge(selectedRequest.status)}
               </div>
 
-              {(selectedRequest.status ===
-                'DISETUJUI' ||
-                selectedRequest.status ===
-                  'SEDANG_DICETAK' ||
-                selectedRequest.status === 'SELESAI') &&
+              {selectedRequest.status !== 'DITOLAK' &&
                 selectedRequest.reviewedBy && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                     <div className="flex items-center gap-2 text-green-800 font-bold text-xs">
@@ -745,6 +778,36 @@ export const AdminManagement: React.FC = () => {
                 </div>
               </div>
 
+              {selectedRequest.status === 'DITOLAK' && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="text-xs font-bold text-red-800">
+                    PENGAJUAN DITOLAK
+                  </div>
+
+                  <div className="text-[11px] text-red-700 mt-2">
+                    {selectedRequest.reviewedBy && (
+                      <>
+                        Keputusan oleh:{' '}
+                        <strong>
+                          {selectedRequest.reviewedBy}
+                        </strong>
+                        {selectedRequest.reviewedAt
+                          ? ` • ${formatDate(
+                              selectedRequest.reviewedAt
+                            )}`
+                          : ''}
+                      </>
+                    )}
+                  </div>
+
+                  <div className="text-xs text-red-900 mt-3">
+                    <strong>Alasan:</strong>{' '}
+                    {selectedRequest.rejectionReason ||
+                      'Tidak ada alasan tambahan.'}
+                  </div>
+                </div>
+              )}
+
               <button
                 type="button"
                 disabled={openingFile}
@@ -755,7 +818,11 @@ export const AdminManagement: React.FC = () => {
               >
                 <div className="text-left">
                   <div className="text-xs font-bold text-blue-900">
-                    Buka Dokumen Bahan Ajar
+                    {selectedRequest.status === 'DITOLAK'
+                      ? 'Buka File Pengajuan'
+                      : selectedRequest.status === 'SELESAI'
+                      ? 'Buka File yang Pernah Difotokopi'
+                      : 'Buka Dokumen Bahan Ajar'}
                   </div>
                   <div className="text-[10px] text-blue-700 mt-0.5">
                     {selectedRequest.fileName}
