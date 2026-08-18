@@ -356,6 +356,11 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     (r) => r.status === 'SELESAI'
   ).length;
 
+  const rejectedCount =
+  requests.filter(
+    (r) => r.status === 'DITOLAK'
+  ).length;
+
   const totalSheetsApproved =
     requests
       .filter(
