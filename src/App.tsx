@@ -281,13 +281,14 @@ export default function App() {
           currentUser &&
           (currentUser.role === 'KEPSEK' || currentUser.role === 'ADMIN') && (
             <KepsekDashboard
-              reviewerName={`${currentUser.name} ${
-                currentUser.role === 'KEPSEK'
-                  ? '(Kepala SD Lazuardi)'
-                  : '(Administrator)'
-              }`}
-              onRequestUpdated={fetchPendingCount}
-            />
+  reviewerName={`${currentUser.name} ${
+    currentUser.role === 'KEPSEK'
+      ? '(Kepala SD Lazuardi)'
+      : '(Administrator)'
+  }`}
+  canReview={currentUser.role === 'KEPSEK'}
+  onRequestUpdated={fetchPendingCount}
+/>
           )}
 
         {activeTab === 'ADMIN' && currentUser?.role === 'ADMIN' && (
