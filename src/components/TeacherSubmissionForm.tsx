@@ -19,6 +19,10 @@ import {
   ExternalLink,
   Folder,
   Link as LinkIcon,
+  Mail,
+  User,
+  School,
+  Copy,
 } from 'lucide-react';
 
 interface FormProps {
@@ -34,15 +38,16 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
   onGoToTrack,
 }) => {
   // =====================================================
-  // FORM STATE
+  // IDENTITAS
   // =====================================================
 
   const [teacherName, setTeacherName] = useState('');
+  const [teacherEmail, setTeacherEmail] = useState('');
   const [subjectClass, setSubjectClass] = useState('');
   const [title, setTitle] = useState('');
 
   // =====================================================
-  // FILE / DOCUMENT SOURCE
+  // DOKUMEN
   // =====================================================
 
   const [docSourceType, setDocSourceType] =
@@ -52,43 +57,51 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
   const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState('');
   const [fileSize, setFileSize] = useState('');
+  const [dragActive, setDragActive] = useState(false);
 
   // =====================================================
-  // PRINT SPEC
+  // SPESIFIKASI CETAK
   // =====================================================
 
   const [pagesCount, setPagesCount] = useState<number>(4);
   const [copiesCount, setCopiesCount] = useState<number>(30);
-  const [paperSize, setPaperSize] = useState<PaperSize>('A4');
+
+  const [paperSize, setPaperSize] =
+    useState<PaperSize>('A4');
+
   const [colorOption, setColorOption] =
     useState<ColorOption>('BW');
+
   const [printSide, setPrintSide] =
     useState<PrintSide>('DOUBLE');
+
   const [urgency, setUrgency] =
     useState<Urgency>('NORMAL');
 
-  const [targetDate, setTargetDate] = useState<string>(() => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow.toISOString().slice(0, 10);
-  });
+  const [targetDate, setTargetDate] =
+    useState<string>(() => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return tomorrow.toISOString().slice(0, 10);
+    });
 
   const [notes, setNotes] = useState('');
 
   // =====================================================
-  // UI STATE
+  // UI
   // =====================================================
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
 
   const [submittedResult, setSubmittedResult] =
     useState<PhotocopyRequest | null>(null);
 
-  const [dragActive, setDragActive] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [copied, setCopied] = useState(false);
 
   // =====================================================
-  // KALKULASI KERTAS
+  // KALKULASI
   // =====================================================
 
   const calculatedSheets =
@@ -100,19 +113,15 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
   // FILE HANDLING
   // =====================================================
 
-  const handleFileChange = (
-    e: React.ChangeEvent<HTMLInputElement>
+  const processSelectedFile = (
+    selectedFile: File
   ) => {
-    if (e.target.files && e.target.files[0]) {
-      processSelectedFile(e.target.files[0]);
-    }
-  };
-
-  const processSelectedFile = (selectedFile: File) => {
     setErrorMsg('');
 
-    // Maksimal 20 MB
-    if (selectedFile.size > 20 * 1024 * 1024) {
+    if (
+      selectedFile.size >
+      20 * 1024 * 1024
+    ) {
       setErrorMsg(
         'Ukuran file terlalu besar. Maksimal 20 MB.'
       );
@@ -133,7 +142,6 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
 
     setFileSize(`${sizeInMB} MB`);
 
-    // Perkiraan awal jumlah halaman
     const lowerName =
       selectedFile.name.toLowerCase();
 
@@ -147,12 +155,25 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
       lowerName.includes('soal')
     ) {
       setPagesCount(2);
-    } else {
-      setPagesCount(4);
     }
   };
 
-  const handleDrag = (e: React.DragEvent) => {
+  const handleFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    if (
+      e.target.files &&
+      e.target.files[0]
+    ) {
+      processSelectedFile(
+        e.target.files[0]
+      );
+    }
+  };
+
+  const handleDrag = (
+    e: React.DragEvent
+  ) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -161,15 +182,18 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
       e.type === 'dragover'
     ) {
       setDragActive(true);
-    } else if (e.type === 'dragleave') {
+    } else if (
+      e.type === 'dragleave'
+    ) {
       setDragActive(false);
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = (
+    e: React.DragEvent
+  ) => {
     e.preventDefault();
     e.stopPropagation();
-
     setDragActive(false);
 
     if (
@@ -183,19 +207,32 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
   };
 
   // =====================================================
-  // SUBMIT KE SUPABASE
+  // VALIDASI EMAIL
+  // =====================================================
+
+  const normalizeEmail = (
+    value: string
+  ) => value.trim().toLowerCase();
+
+  const isValidEmail = (
+    value: string
+  ) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+      value
+    );
+
+  // =====================================================
+  // SUBMIT
   // =====================================================
 
   const handleSubmit = async (
     e: React.FormEvent
   ) => {
     e.preventDefault();
-
     setErrorMsg('');
 
-    // ===================================================
-    // VALIDASI
-    // ===================================================
+    const normalizedEmail =
+      normalizeEmail(teacherEmail);
 
     if (!teacherName.trim()) {
       setErrorMsg(
@@ -204,9 +241,23 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
       return;
     }
 
+    if (!normalizedEmail) {
+      setErrorMsg(
+        'Email Guru wajib diisi.'
+      );
+      return;
+    }
+
+    if (!isValidEmail(normalizedEmail)) {
+      setErrorMsg(
+        'Format Email Guru tidak valid.'
+      );
+      return;
+    }
+
     if (!subjectClass.trim()) {
       setErrorMsg(
-        'Kelas / Target Pembelajaran wajib diisi.'
+        'Kelas wajib diisi.'
       );
       return;
     }
@@ -243,18 +294,7 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
       copiesCount <= 0
     ) {
       setErrorMsg(
-        'Jumlah halaman dan jumlah salinan harus lebih dari 0.'
-      );
-      return;
-    }
-
-    if (
-      docSourceType === 'UPLOAD' &&
-      file &&
-      file.size > 20 * 1024 * 1024
-    ) {
-      setErrorMsg(
-        'Ukuran file terlalu besar. Maksimal 20 MB.'
+        'Jumlah halaman dan salinan harus lebih dari 0.'
       );
       return;
     }
@@ -266,9 +306,9 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
       | null = null;
 
     try {
-      // =================================================
-      // GENERATE TRACKING CODE
-      // =================================================
+      // ===============================================
+      // TRACKING ID
+      // ===============================================
 
       const jakartaDate =
         new Intl.DateTimeFormat(
@@ -292,29 +332,26 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
       const trackingCode =
         `REQ-${jakartaDate}-${randomCode}`;
 
-      // =================================================
-      // FILE METADATA
-      // =================================================
+      // ===============================================
+      // FILE
+      // ===============================================
 
       let finalFileUrl = '';
       let finalFileName = '';
       let finalFileSize = '';
       let finalFileType = '';
 
-      // =================================================
-      // UPLOAD FILE KE SUPABASE STORAGE
-      // =================================================
-
       if (
         docSourceType === 'UPLOAD' &&
         file
       ) {
-        let safeFileName = file.name
-          .replace(/\s+/g, '_')
-          .replace(
-            /[^a-zA-Z0-9._-]/g,
-            ''
-          );
+        let safeFileName =
+          file.name
+            .replace(/\s+/g, '_')
+            .replace(
+              /[^a-zA-Z0-9._-]/g,
+              ''
+            );
 
         if (!safeFileName) {
           safeFileName = 'document';
@@ -323,24 +360,22 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
         const storagePath =
           `${trackingCode}/${safeFileName}`;
 
-        const {
-          error: uploadError,
-        } = await supabase.storage
-          .from('photocopy-files')
-          .upload(storagePath, file, {
-            cacheControl: '3600',
-            upsert: false,
-            contentType:
-              file.type ||
-              'application/octet-stream',
-          });
+        const { error: uploadError } =
+          await supabase.storage
+            .from('photocopy-files')
+            .upload(
+              storagePath,
+              file,
+              {
+                cacheControl: '3600',
+                upsert: false,
+                contentType:
+                  file.type ||
+                  'application/octet-stream',
+              }
+            );
 
         if (uploadError) {
-          console.error(
-            'Storage upload error:',
-            uploadError
-          );
-
           throw new Error(
             `Gagal mengunggah dokumen: ${uploadError.message}`
           );
@@ -365,10 +400,6 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
           file.type ||
           'application/octet-stream';
       } else {
-        // ===============================================
-        // LINK URL
-        // ===============================================
-
         let formattedUrl =
           fileUrlInput.trim();
 
@@ -397,81 +428,75 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
           'url/link';
       }
 
-      // =================================================
-      // INSERT DATABASE
-      // =================================================
+      // ===============================================
+      // DATABASE
+      // ===============================================
 
-      const {
-        error: insertError,
-      } = await supabase
-        .from('photocopy_requests')
-        .insert({
-          id: trackingCode,
+      const { error: insertError } =
+        await supabase
+          .from('photocopy_requests')
+          .insert({
+            id: trackingCode,
 
-          teacher_name:
-            teacherName.trim(),
+            teacher_name:
+              teacherName.trim(),
 
-          subject_class:
-            subjectClass.trim(),
+            teacher_email:
+              normalizedEmail,
 
-          title:
-            title.trim(),
+            subject_class:
+              subjectClass.trim(),
 
-          file_name:
-            finalFileName,
+            title:
+              title.trim(),
 
-          file_size:
-            finalFileSize,
+            file_name:
+              finalFileName,
 
-          file_type:
-            finalFileType,
+            file_size:
+              finalFileSize,
 
-          file_url:
-            finalFileUrl,
+            file_type:
+              finalFileType,
 
-          drive_folder_url:
-            LAZUARDI_DRIVE_FOLDER_URL,
+            file_url:
+              finalFileUrl,
 
-          pages_count:
-            pagesCount,
+            drive_folder_url:
+              LAZUARDI_DRIVE_FOLDER_URL,
 
-          copies_count:
-            copiesCount,
+            pages_count:
+              pagesCount,
 
-          total_sheets:
-            calculatedSheets,
+            copies_count:
+              copiesCount,
 
-          paper_size:
-            paperSize,
+            total_sheets:
+              calculatedSheets,
 
-          color_option:
-            colorOption,
+            paper_size:
+              paperSize,
 
-          print_side:
-            printSide,
+            color_option:
+              colorOption,
 
-          urgency:
-            urgency,
+            print_side:
+              printSide,
 
-          target_date:
-            targetDate,
+            urgency:
+              urgency,
 
-          notes:
-            notes.trim() || null,
+            target_date:
+              targetDate,
 
-          status:
-            'MENUNGGU',
-        });
+            notes:
+              notes.trim() || null,
+
+            status:
+              'MENUNGGU',
+          });
 
       if (insertError) {
-        console.error(
-          'Database insert error:',
-          insertError
-        );
-
-        // Kalau upload file sukses tetapi
-        // database gagal, hapus file agar
-        // tidak menjadi file yatim.
         if (uploadedStoragePath) {
           await supabase.storage
             .from('photocopy-files')
@@ -485,16 +510,15 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
         );
       }
 
-      // =================================================
-      // DATA UNTUK UI
-      // =================================================
-
       const newRequest:
         PhotocopyRequest = {
         id: trackingCode,
 
         teacherName:
           teacherName.trim(),
+
+        teacherEmail:
+          normalizedEmail,
 
         subjectClass:
           subjectClass.trim(),
@@ -527,11 +551,11 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
         colorOption,
         printSide,
         urgency,
-
         targetDate,
 
         notes:
-          notes.trim() || undefined,
+          notes.trim() ||
+          undefined,
 
         status:
           'MENUNGGU',
@@ -561,12 +585,11 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
   };
 
   // =====================================================
-  // RESET FORM
+  // RESET
   // =====================================================
 
   const resetForm = () => {
     setSubmittedResult(null);
-
     setTitle('');
     setFile(null);
     setFileName('');
@@ -574,102 +597,194 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
     setFileUrlInput('');
     setNotes('');
     setErrorMsg('');
+    setCopied(false);
+  };
+
+  const copyTrackingId = async () => {
+    if (!submittedResult) return;
+
+    try {
+      await navigator.clipboard.writeText(
+        submittedResult.id
+      );
+
+      setCopied(true);
+
+      setTimeout(
+        () => setCopied(false),
+        1800
+      );
+    } catch {
+      // no-op
+    }
   };
 
   // =====================================================
-  // UI
+  // SUCCESS VIEW
+  // =====================================================
+
+  if (submittedResult) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-10">
+        <div className="bg-white border border-green-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="bg-green-50 border-b border-green-200 p-7 text-center">
+            <div className="w-14 h-14 rounded-full bg-green-100 text-green-700 flex items-center justify-center mx-auto mb-4">
+              <CheckCircle2 className="w-7 h-7" />
+            </div>
+
+            <h2 className="text-2xl font-bold text-green-900">
+              Pengajuan Berhasil Dikirim
+            </h2>
+
+            <p className="text-sm text-green-700 mt-2">
+              Pengajuan diteruskan ke Portal Kepala Sekolah.
+            </p>
+          </div>
+
+          <div className="p-6 space-y-5">
+            <div className="bg-slate-900 rounded-xl p-5 text-white">
+              <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
+                Tracking ID
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-2">
+                <div className="font-mono text-xl sm:text-2xl font-bold text-blue-400">
+                  {submittedResult.id}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={copyTrackingId}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold"
+                >
+                  <Copy className="w-4 h-4" />
+                  {copied
+                    ? 'Tersalin'
+                    : 'Salin ID'}
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-400 mt-3">
+                Simpan Tracking ID ini untuk memeriksa status pengajuan.
+              </p>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <InfoBox
+                label="Nama Guru"
+                value={
+                  submittedResult.teacherName
+                }
+              />
+
+              <InfoBox
+                label="Kelas"
+                value={
+                  submittedResult.subjectClass
+                }
+              />
+
+              <InfoBox
+                label="Judul"
+                value={
+                  submittedResult.title
+                }
+              />
+
+              <InfoBox
+                label="Total Kertas"
+                value={`${submittedResult.totalSheets} lembar`}
+              />
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-900">
+              <strong>
+                Email verifikasi tersimpan.
+              </strong>{' '}
+              Jika Kepala Sekolah meminta revisi, gunakan email yang sama saat memperbaiki pengajuan.
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  onGoToTrack(
+                    submittedResult.id
+                  )
+                }
+                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2"
+              >
+                Lacak Status
+                <ArrowRight className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={resetForm}
+                className="flex-1 py-3 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-xl text-sm font-bold"
+              >
+                Buat Pengajuan Lagi
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // =====================================================
+  // FORM VIEW
   // =====================================================
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
-
-      {/* Intro Header */}
+      {/* HEADER */}
       <div className="bg-slate-900 rounded-xl p-6 sm:p-8 text-white shadow-sm border border-slate-800 mb-8 relative overflow-hidden">
-
         <div className="absolute top-0 right-0 -mt-8 -mr-8 w-48 h-48 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="flex items-start justify-between gap-4 relative z-10">
-          <div>
-
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 mb-3">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>
-                Akses Publik Guru - Bebas Login
-              </span>
-            </div>
-
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-2">
-              Form Pengajuan Percetakan & Fotokopi Bahan Ajar
-            </h2>
-
-            <p className="text-slate-300 text-sm max-w-2xl leading-relaxed">
-              Silakan unggah dokumen materi pembelajaran dan atur rincian salinan. Pengajuan Anda akan otomatis diteruskan ke portal{' '}
-              <strong className="text-blue-300 font-semibold">
-                Kepala Sekolah
-              </strong>{' '}
-              untuk ditinjau dan disetujui.
-            </p>
-
+        <div className="relative z-10">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 mb-3">
+            <Sparkles className="w-3.5 h-3.5" />
+            Akses Publik Guru - Bebas Login
           </div>
+
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
+            Form Pengajuan Percetakan & Fotokopi Bahan Ajar
+          </h2>
+
+          <p className="text-slate-300 text-sm max-w-2xl leading-relaxed mt-2">
+            Unggah dokumen dan atur rincian cetak. Pengajuan akan diteruskan ke Kepala Sekolah untuk ditinjau.
+          </p>
         </div>
 
-        {/* Workflow */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6 pt-6 border-t border-slate-800 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6 pt-6 border-t border-slate-800 text-xs relative z-10">
+          <Workflow
+            number="1"
+            title="Guru Isi Form"
+            subtitle="Dokumen & spesifikasi"
+            className="text-blue-400 bg-blue-500/20"
+          />
 
-          <div className="flex items-center gap-2.5 bg-slate-800/80 p-2.5 rounded-lg border border-slate-700/60">
-            <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 font-bold flex items-center justify-center shrink-0">
-              1
-            </div>
+          <Workflow
+            number="2"
+            title="Review Kepsek"
+            subtitle="Setujui / Revisi / Tolak"
+            className="text-amber-400 bg-amber-500/20"
+          />
 
-            <div>
-              <div className="font-semibold text-white">
-                Guru Isi Form
-              </div>
-              <div className="text-slate-400 text-[11px]">
-                Unggah file & spesifikasi
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2.5 bg-slate-800/80 p-2.5 rounded-lg border border-slate-700/60">
-            <div className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 font-bold flex items-center justify-center shrink-0">
-              2
-            </div>
-
-            <div>
-              <div className="font-semibold text-white">
-                Review Kepsek
-              </div>
-              <div className="text-slate-400 text-[11px]">
-                Acc / Tolak via Portal
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2.5 bg-slate-800/80 p-2.5 rounded-lg border border-slate-700/60">
-            <div className="w-6 h-6 rounded-full bg-green-500/20 text-green-400 font-bold flex items-center justify-center shrink-0">
-              3
-            </div>
-
-            <div>
-              <div className="font-semibold text-white">
-                Tim Resource Cetak
-              </div>
-              <div className="text-slate-400 text-[11px]">
-                Tunjukkan bukti digital
-              </div>
-            </div>
-          </div>
-
+          <Workflow
+            number="3"
+            title="Tim Resource Cetak"
+            subtitle="Proses sampai selesai"
+            className="text-green-400 bg-green-500/20"
+          />
         </div>
       </div>
 
-      {/* FORM */}
       <form
         onSubmit={handleSubmit}
         className="space-y-6"
       >
-
         {errorMsg && (
           <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl flex items-center gap-3 text-sm">
             <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
@@ -677,120 +792,86 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
           </div>
         )}
 
-        {/* SECTION 1 */}
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-
-          <div className="flex items-center gap-3 pb-4 mb-5 border-b border-slate-100">
-
-            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-700 font-bold flex items-center justify-center text-sm border border-blue-100">
-              1
-            </div>
-
-            <div>
-              <h3 className="text-base font-bold text-slate-900">
-                Identitas Pengaju
-              </h3>
-
-              <p className="text-xs text-slate-500">
-                Masukkan nama lengkap dan kelas target pembelajaran
-              </p>
-            </div>
-
-          </div>
-
+        {/* IDENTITAS */}
+        <Section
+          number="1"
+          title="Identitas Pengaju"
+          subtitle="Email digunakan untuk verifikasi jika pengajuan perlu direvisi"
+        >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <TextInput
+              label="Nama Lengkap Guru"
+              required
+              icon={<User className="w-4 h-4" />}
+              placeholder="misal: Ahmad Fauzi, S.Pd."
+              value={teacherName}
+              onChange={setTeacherName}
+            />
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Nama Lengkap Guru{' '}
+                Email Guru{' '}
                 <span className="text-red-500">
                   *
                 </span>
               </label>
 
-              <input
-                type="text"
-                required
-                placeholder="misal: Ahmad Fauzi, S.Pd."
-                value={teacherName}
-                onChange={(e) =>
-                  setTeacherName(
-                    e.target.value
-                  )
-                }
-                className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all font-medium"
-              />
-            </div>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Kelas{' '}
-                <span className="text-red-500">
-                  *
-                </span>
-              </label>
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  placeholder="nama@lazuardi.sch.id"
+                  value={teacherEmail}
+                  onChange={(e) =>
+                    setTeacherEmail(
+                      e.target.value
+                    )
+                  }
+                  className="w-full pl-9 pr-3.5 py-2.5 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                />
+              </div>
 
-              <input
-                type="text"
-                required
-                placeholder="misal: 1 Fuji"
-                value={subjectClass}
-                onChange={(e) =>
-                  setSubjectClass(
-                    e.target.value
-                  )
-                }
-                className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all font-medium"
-              />
-            </div>
-
-          </div>
-        </div>
-
-        {/* SECTION 2 */}
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-
-          <div className="flex items-center gap-3 pb-4 mb-5 border-b border-slate-100">
-
-            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-700 font-bold flex items-center justify-center text-sm border border-blue-100">
-              2
-            </div>
-
-            <div>
-              <h3 className="text-base font-bold text-slate-900">
-                Dokumen Bahan Ajar / Materi
-              </h3>
-
-              <p className="text-xs text-slate-500">
-                Unggah file atau sematkan tautan dokumen
+              <p className="text-[10px] text-slate-500 mt-1.5 flex items-start gap-1.5">
+                <Info className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                Email tidak ditampilkan di halaman Lacak Status. Gunakan email yang sama jika Kepala Sekolah meminta revisi.
               </p>
             </div>
 
+            <TextInput
+              label="Kelas"
+              required
+              icon={<School className="w-4 h-4" />}
+              placeholder="misal: 1 Fuji"
+              value={subjectClass}
+              onChange={setSubjectClass}
+            />
           </div>
+        </Section>
 
+        {/* DOKUMEN */}
+        <Section
+          number="2"
+          title="Dokumen Bahan Ajar / Materi"
+          subtitle="Unggah file atau gunakan tautan dokumen"
+        >
           <div className="space-y-4">
-
-            {/* DRIVE BANNER */}
-            <div className="bg-slate-900 text-white rounded-xl p-4 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
-
+            <div className="bg-slate-900 text-white rounded-xl p-4 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-
-                <div className="w-10 h-10 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
+                <div className="w-10 h-10 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30">
                   <Folder className="w-5 h-5" />
                 </div>
 
                 <div>
-                  <div className="font-bold text-xs text-white flex items-center gap-2">
-                    <span>
-                      Google Drive Folder Repository Bahan Ajar
-                    </span>
+                  <div className="font-bold text-xs">
+                    Google Drive Repository Bahan Ajar
                   </div>
-
                   <p className="text-[11px] text-slate-300 mt-0.5">
-                    Bahan ajar dapat diunggah langsung ke sistem atau menggunakan tautan dokumen.
+                    Bisa upload langsung atau menggunakan link dokumen.
                   </p>
                 </div>
-
               </div>
 
               <a
@@ -799,97 +880,58 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
                 }
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg transition-colors shrink-0 shadow-sm"
+                className="inline-flex items-center gap-2 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg"
               >
-                <span>
-                  Buka Folder Drive
-                </span>
-
+                Buka Folder Drive
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
-
             </div>
 
-            {/* TITLE */}
+            <TextInput
+              label="Judul / Nama Materi Bahan Ajar"
+              required
+              placeholder="misal: Worksheet Matematika Pecahan"
+              value={title}
+              onChange={setTitle}
+            />
+
             <div>
-
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Judul / Nama Materi Bahan Ajar{' '}
-                <span className="text-red-500">
-                  *
-                </span>
-              </label>
-
-              <input
-                type="text"
-                required
-                placeholder="misal: Worksheet Matematika Pecahan"
-                value={title}
-                onChange={(e) =>
-                  setTitle(e.target.value)
-                }
-                className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all font-medium"
-              />
-
-            </div>
-
-            {/* SOURCE TYPE */}
-            <div>
-
               <label className="block text-xs font-bold text-slate-700 mb-2">
-                Pilih Metode Dokumen Bahan Ajar:
+                Metode Dokumen
               </label>
 
               <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl">
-
-                <button
-                  type="button"
+                <SourceButton
+                  active={
+                    docSourceType === 'UPLOAD'
+                  }
                   onClick={() =>
                     setDocSourceType(
                       'UPLOAD'
                     )
                   }
-                  className={`py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
-                    docSourceType ===
-                    'UPLOAD'
-                      ? 'bg-white text-blue-900 shadow-sm border border-slate-200'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <FileUp className="w-4 h-4 text-blue-600" />
-                  <span>
-                    Unggah File Dokumen
-                  </span>
-                </button>
+                  icon={<FileUp className="w-4 h-4" />}
+                  label="Unggah File"
+                />
 
-                <button
-                  type="button"
+                <SourceButton
+                  active={
+                    docSourceType === 'URL'
+                  }
                   onClick={() =>
                     setDocSourceType(
                       'URL'
                     )
                   }
-                  className={`py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
-                    docSourceType ===
-                    'URL'
-                      ? 'bg-white text-blue-900 shadow-sm border border-slate-200'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <LinkIcon className="w-4 h-4 text-blue-600" />
-                  <span>
-                    Sematkan Link URL
-                  </span>
-                </button>
-
+                  icon={<LinkIcon className="w-4 h-4" />}
+                  label="Link URL"
+                />
               </div>
             </div>
 
-            {/* UPLOAD / URL */}
             {docSourceType ===
             'UPLOAD' ? (
               <div>
-
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Unggah File Dokumen{' '}
                   <span className="text-red-500">
@@ -898,51 +940,37 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
                 </label>
 
                 <div
-                  onDragEnter={
-                    handleDrag
-                  }
-                  onDragLeave={
-                    handleDrag
-                  }
-                  onDragOver={
-                    handleDrag
-                  }
+                  onDragEnter={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDragOver={handleDrag}
                   onDrop={handleDrop}
                   className={`border-2 border-dashed rounded-xl p-6 text-center transition-all ${
                     dragActive
-                      ? 'border-blue-500 bg-blue-50/60'
+                      ? 'border-blue-500 bg-blue-50'
                       : fileName
                       ? 'border-blue-300 bg-slate-50'
-                      : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
+                      : 'border-slate-300 hover:border-blue-400'
                   }`}
                 >
-
                   {fileName ? (
-                    <div className="flex items-center justify-between bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-
-                      <div className="flex items-center gap-3 overflow-hidden text-left">
-
-                        <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center font-bold shrink-0 border border-blue-100">
+                    <div className="flex items-center justify-between gap-3 bg-white p-4 rounded-lg border border-slate-200">
+                      <div className="flex items-center gap-3 min-w-0 text-left">
+                        <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
                           <FileText className="w-5 h-5" />
                         </div>
 
-                        <div className="truncate">
+                        <div className="min-w-0">
                           <p className="text-sm font-bold text-slate-900 truncate">
                             {fileName}
                           </p>
-
                           <p className="text-xs text-slate-500">
-                            {fileSize ||
-                              'Dokumen Siap Cetak'}
+                            {fileSize}
                           </p>
                         </div>
-
                       </div>
 
-                      <label className="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg cursor-pointer transition-colors border border-blue-200 shrink-0">
-
+                      <label className="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 rounded-lg cursor-pointer border border-blue-200 shrink-0">
                         Ganti File
-
                         <input
                           type="file"
                           onChange={
@@ -951,14 +979,11 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
                           accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg"
                           className="hidden"
                         />
-
                       </label>
-
                     </div>
                   ) : (
-                    <div>
-
-                      <FileUp className="w-10 h-10 mx-auto text-blue-600 mb-2 opacity-80" />
+                    <>
+                      <FileUp className="w-10 h-10 mx-auto text-blue-600 mb-2" />
 
                       <p className="text-sm font-semibold text-slate-800">
                         Tarik & Lepas File di Sini
@@ -975,24 +1000,21 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
                         }
                         accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg"
                         className="hidden"
-                        id="file-upload-input"
+                        id="photocopy-file-upload"
                       />
 
                       <label
-                        htmlFor="file-upload-input"
-                        className="inline-block mt-3 px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm cursor-pointer transition-colors"
+                        htmlFor="photocopy-file-upload"
+                        className="inline-block mt-3 px-4 py-2 text-xs font-bold text-white bg-slate-900 rounded-lg cursor-pointer"
                       >
                         Pilih Dokumen
                       </label>
-
-                    </div>
+                    </>
                   )}
-
                 </div>
               </div>
             ) : (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
-
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Tautan Dokumen{' '}
                   <span className="text-red-500">
@@ -1001,6 +1023,7 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
                 </label>
 
                 <div className="relative">
+                  <LinkIcon className="w-4 h-4 text-blue-600 absolute left-3 top-3" />
 
                   <input
                     type="url"
@@ -1013,544 +1036,414 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
                         e.target.value
                       )
                     }
-                    className="w-full px-3.5 py-2.5 pl-9 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 font-mono text-slate-900 font-medium"
+                    className="w-full pl-9 pr-3.5 py-2.5 text-xs rounded-lg border border-slate-300 font-mono"
                   />
-
-                  <LinkIcon className="w-4 h-4 text-blue-600 absolute left-3 top-3" />
-
                 </div>
 
-                <p className="text-[11px] text-slate-500 mt-1.5 flex items-center gap-1">
-
-                  <Info className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-
-                  <span>
-                    Pastikan akses tautan dapat dibuka oleh pihak sekolah.
-                  </span>
-
+                <p className="text-[11px] text-slate-500 mt-1.5">
+                  Pastikan tautan dapat dibuka oleh pihak sekolah.
                 </p>
-
               </div>
             )}
-
           </div>
-        </div>
+        </Section>
 
-        {/* SECTION 3 */}
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+        {/* SPESIFIKASI */}
+        <Section
+          number="3"
+          title="Spesifikasi Fotokopi"
+          subtitle="Atur jumlah, ukuran kertas, warna, dan sisi cetak"
+        >
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <NumberInput
+              label="Jumlah Halaman"
+              value={pagesCount}
+              onChange={setPagesCount}
+            />
 
-          <div className="flex items-center gap-3 pb-4 mb-5 border-b border-slate-100">
+            <NumberInput
+              label="Jumlah Salinan"
+              value={copiesCount}
+              onChange={setCopiesCount}
+            />
 
-            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-700 font-bold flex items-center justify-center text-sm border border-blue-100">
-              3
+            <SelectInput
+              label="Ukuran Kertas"
+              value={paperSize}
+              onChange={(value) =>
+                setPaperSize(
+                  value as PaperSize
+                )
+              }
+              options={[
+                ['A4', 'A4'],
+                ['F4', 'F4'],
+                ['A3', 'A3'],
+              ]}
+            />
+
+            <SelectInput
+              label="Warna"
+              value={colorOption}
+              onChange={(value) =>
+                setColorOption(
+                  value as ColorOption
+                )
+              }
+              options={[
+                ['BW', 'Hitam Putih'],
+                ['COLOR', 'Berwarna'],
+              ]}
+            />
+
+            <SelectInput
+              label="Sisi Cetak"
+              value={printSide}
+              onChange={(value) =>
+                setPrintSide(
+                  value as PrintSide
+                )
+              }
+              options={[
+                ['SINGLE', '1 Sisi'],
+                ['DOUBLE', '2 Sisi'],
+              ]}
+            />
+
+            <SelectInput
+              label="Prioritas"
+              value={urgency}
+              onChange={(value) =>
+                setUrgency(
+                  value as Urgency
+                )
+              }
+              options={[
+                ['NORMAL', 'Normal'],
+                ['TINGGI', 'Tinggi'],
+              ]}
+            />
+
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Tanggal Diperlukan *
+              </label>
+
+              <input
+                type="date"
+                required
+                value={targetDate}
+                onChange={(e) =>
+                  setTargetDate(
+                    e.target.value
+                  )
+                }
+                className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-300"
+              />
+            </div>
+          </div>
+
+          <div className="mt-5 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+              <Calculator className="w-5 h-5" />
             </div>
 
             <div>
-              <h3 className="text-base font-bold text-slate-900">
-                Spesifikasi & Rincian Cetak
-              </h3>
-
-              <p className="text-xs text-slate-500">
-                Atur jumlah halaman, salinan, ukuran kertas dan mode pencetakan
-              </p>
-            </div>
-
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-            <div className="space-y-4">
-
-              {/* PAGE + COPIES */}
-              <div className="grid grid-cols-2 gap-3">
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Jumlah Halaman
-                  </label>
-
-                  <input
-                    type="number"
-                    min={1}
-                    max={500}
-                    value={
-                      pagesCount
-                    }
-                    onChange={(e) =>
-                      setPagesCount(
-                        Math.max(
-                          1,
-                          parseInt(
-                            e.target.value
-                          ) || 1
-                        )
-                      )
-                    }
-                    className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Jumlah Salinan
-                  </label>
-
-                  <input
-                    type="number"
-                    min={1}
-                    max={1000}
-                    value={
-                      copiesCount
-                    }
-                    onChange={(e) =>
-                      setCopiesCount(
-                        Math.max(
-                          1,
-                          parseInt(
-                            e.target.value
-                          ) || 1
-                        )
-                      )
-                    }
-                    className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all font-semibold"
-                  />
-                </div>
-
+              <div className="text-[10px] uppercase tracking-wide font-bold text-blue-700">
+                Perkiraan Kebutuhan HVS
               </div>
 
-              {/* PAPER SIZE */}
-              <div>
-
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Ukuran Kertas
-                </label>
-
-                <div className="grid grid-cols-3 gap-2">
-
-                  {(
-                    [
-                      'A4',
-                      'F4',
-                      'A3',
-                    ] as PaperSize[]
-                  ).map((size) => (
-                    <button
-                      key={size}
-                      type="button"
-                      onClick={() =>
-                        setPaperSize(
-                          size
-                        )
-                      }
-                      className={`py-2 px-3 text-xs font-bold rounded-lg border transition-all ${
-                        paperSize ===
-                        size
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      {size === 'F4'
-                        ? 'F4 / Folio'
-                        : size}
-                    </button>
-                  ))}
-
-                </div>
+              <div className="text-2xl font-bold text-blue-900">
+                {calculatedSheets}{' '}
+                <span className="text-sm">
+                  lembar
+                </span>
               </div>
 
-              {/* COLOR */}
-              <div>
-
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Mode Warna
-                </label>
-
-                <div className="grid grid-cols-2 gap-2">
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setColorOption(
-                        'BW'
-                      )
-                    }
-                    className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-all ${
-                      colorOption ===
-                      'BW'
-                        ? 'bg-blue-50 text-blue-900 border-blue-500 ring-2 ring-blue-500/20'
-                        : 'bg-slate-50 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    Hitam Putih
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setColorOption(
-                        'COLOR'
-                      )
-                    }
-                    className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-all ${
-                      colorOption ===
-                      'COLOR'
-                        ? 'bg-purple-50 text-purple-900 border-purple-500 ring-2 ring-purple-500/20'
-                        : 'bg-slate-50 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    Berwarna
-                  </button>
-
-                </div>
+              <div className="text-[11px] text-blue-700 mt-1">
+                {pagesCount} halaman ×{' '}
+                {copiesCount} salinan •{' '}
+                {printSide === 'DOUBLE'
+                  ? '2 sisi'
+                  : '1 sisi'}
               </div>
-
-              {/* PRINT SIDE */}
-              <div>
-
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Sisi Pencetakan
-                </label>
-
-                <div className="grid grid-cols-2 gap-2">
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPrintSide(
-                        'DOUBLE'
-                      )
-                    }
-                    className={`py-2 px-3 text-xs font-semibold rounded-lg border ${
-                      printSide ===
-                      'DOUBLE'
-                        ? 'bg-blue-50 text-blue-900 border-blue-500'
-                        : 'bg-slate-50 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    2 Sisi
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPrintSide(
-                        'SINGLE'
-                      )
-                    }
-                    className={`py-2 px-3 text-xs font-semibold rounded-lg border ${
-                      printSide ===
-                      'SINGLE'
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-slate-50 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    1 Sisi
-                  </button>
-
-                </div>
-              </div>
-
-              {/* DATE + URGENCY */}
-              <div className="grid grid-cols-2 gap-3">
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Tanggal Diperlukan
-                  </label>
-
-                  <input
-                    type="date"
-                    required
-                    value={
-                      targetDate
-                    }
-                    onChange={(e) =>
-                      setTargetDate(
-                        e.target.value
-                      )
-                    }
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Urgensi
-                  </label>
-
-                  <select
-                    value={urgency}
-                    onChange={(e) =>
-                      setUrgency(
-                        e.target
-                          .value as Urgency
-                      )
-                    }
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 font-semibold"
-                  >
-                    <option value="NORMAL">
-                      Normal
-                    </option>
-
-                    <option value="TINGGI">
-                      Tinggi
-                    </option>
-                  </select>
-                </div>
-
-              </div>
-            </div>
-
-            {/* SUMMARY */}
-            <div className="bg-slate-900 text-white rounded-xl p-5 flex flex-col justify-between border border-slate-800">
-
-              <div>
-
-                <div className="flex items-center gap-2 text-xs font-bold text-blue-400 mb-4 pb-2 border-b border-slate-800">
-                  <Calculator className="w-4 h-4" />
-                  <span>
-                    Kalkulasi Otomatis
-                  </span>
-                </div>
-
-                <div className="space-y-3 text-xs">
-
-                  <div className="flex justify-between text-slate-300">
-                    <span>
-                      Jumlah Halaman:
-                    </span>
-
-                    <span className="font-semibold text-white">
-                      {pagesCount}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between text-slate-300">
-                    <span>
-                      Jumlah Salinan:
-                    </span>
-
-                    <span className="font-semibold text-white">
-                      {copiesCount}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between text-slate-300">
-                    <span>
-                      Pencetakan:
-                    </span>
-
-                    <span className="font-semibold text-blue-400">
-                      {printSide ===
-                      'DOUBLE'
-                        ? '2 Sisi'
-                        : '1 Sisi'}
-                    </span>
-                  </div>
-
-                </div>
-
-                <div className="my-5 p-4 bg-slate-800 rounded-lg border border-slate-700 text-center">
-
-                  <div className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">
-                    Total Kebutuhan Kertas
-                  </div>
-
-                  <div className="text-3xl font-bold text-blue-400 my-1">
-                    {calculatedSheets}{' '}
-                    <span className="text-sm font-normal text-slate-300">
-                      Lembar
-                    </span>
-                  </div>
-
-                </div>
-
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Catatan Tambahan
-                </label>
-
-                <textarea
-                  rows={3}
-                  placeholder="misal: staples di pojok kiri atas"
-                  value={notes}
-                  onChange={(e) =>
-                    setNotes(
-                      e.target.value
-                    )
-                  }
-                  className="w-full px-3 py-2 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
             </div>
           </div>
-        </div>
+        </Section>
 
-        {/* SUBMIT */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        {/* CATATAN */}
+        <Section
+          number="4"
+          title="Catatan Tambahan"
+          subtitle="Opsional"
+        >
+          <textarea
+            value={notes}
+            onChange={(e) =>
+              setNotes(e.target.value)
+            }
+            rows={4}
+            placeholder="Contoh: mohon distaples per set, urutan halaman jangan dibalik, dll."
+            className="w-full px-3.5 py-3 text-sm rounded-lg border border-slate-300 resize-y"
+          />
+        </Section>
 
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <Info className="w-4 h-4 text-blue-600 shrink-0" />
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+          <div className="flex items-start gap-3 mb-5 text-xs text-slate-600">
+            <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
 
-            <span>
-              Pengajuan akan dikirim langsung ke Kepala Sekolah.
-            </span>
+            <p>
+              Pastikan nama, <strong>email guru</strong>, jumlah salinan, target tanggal, dan dokumen sudah benar. Email akan dipakai jika pengajuan perlu dikembalikan untuk revisi.
+            </p>
           </div>
 
           <button
             type="submit"
-            disabled={
-              isSubmitting
-            }
-            className="w-full sm:w-auto px-8 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            disabled={isSubmitting}
+            className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
           >
-
             {isSubmitting ? (
               <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>
-                  Mengirim Form...
-                </span>
+                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                Mengirim Pengajuan...
               </>
             ) : (
               <>
-                <span>
-                  Kirim Pengajuan Ke Kepala Sekolah
-                </span>
+                Kirim Pengajuan ke Kepala Sekolah
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
-
           </button>
-
         </div>
       </form>
-
-      {/* SUCCESS MODAL */}
-      {submittedResult && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-
-          <div className="bg-white rounded-xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-200">
-
-            <div className="w-16 h-16 rounded-xl bg-green-100 text-green-700 flex items-center justify-center mx-auto mb-4 border border-green-200">
-              <CheckCircle2 className="w-10 h-10" />
-            </div>
-
-            <h3 className="text-xl font-bold text-slate-900 text-center mb-1">
-              Pengajuan Berhasil Dikirim!
-            </h3>
-
-            <p className="text-xs text-slate-500 text-center mb-6">
-              Permintaan sedang menunggu peninjauan Kepala Sekolah.
-            </p>
-
-            <div className="bg-slate-900 text-white p-5 rounded-xl text-center mb-6">
-
-              <div className="text-xs text-slate-400 font-bold uppercase tracking-wider">
-                Tracking ID
-              </div>
-
-              <div className="text-2xl font-mono font-bold text-blue-400 my-1 tracking-wider">
-                {submittedResult.id}
-              </div>
-
-              <div className="text-[11px] text-slate-400">
-                Simpan kode ini untuk mengecek status pengajuan.
-              </div>
-
-            </div>
-
-            <div className="space-y-2 text-xs text-slate-600 bg-slate-50 p-4 rounded-lg border border-slate-200 mb-6">
-
-              <div className="flex justify-between">
-                <span>
-                  Judul:
-                </span>
-
-                <span className="font-semibold text-slate-800">
-                  {
-                    submittedResult.title
-                  }
-                </span>
-              </div>
-
-              <div className="flex justify-between">
-                <span>
-                  Pengaju:
-                </span>
-
-                <span className="font-semibold text-slate-800">
-                  {
-                    submittedResult.teacherName
-                  }
-                </span>
-              </div>
-
-              <div className="flex justify-between">
-                <span>
-                  Jumlah Cetak:
-                </span>
-
-                <span className="font-semibold text-slate-800">
-                  {
-                    submittedResult.copiesCount
-                  }{' '}
-                  salinan (
-                  {
-                    submittedResult.totalSheets
-                  }{' '}
-                  lembar)
-                </span>
-              </div>
-
-              <div className="flex justify-between">
-                <span>
-                  Status:
-                </span>
-
-                <span className="font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded text-[10px]">
-                  MENUNGGU
-                </span>
-              </div>
-
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-
-              <button
-                onClick={
-                  resetForm
-                }
-                className="py-2.5 px-4 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-lg text-xs transition-colors"
-              >
-                Buat Pengajuan Baru
-              </button>
-
-              <button
-                onClick={() => {
-                  const code =
-                    submittedResult.id;
-
-                  setSubmittedResult(
-                    null
-                  );
-
-                  onGoToTrack(code);
-                }}
-                className="py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs transition-colors shadow-sm"
-              >
-                Lacak Status
-              </button>
-
-            </div>
-
-          </div>
-        </div>
-      )}
-
     </div>
   );
 };
+
+// =====================================================
+// SMALL COMPONENTS
+// =====================================================
+
+const Section: React.FC<{
+  number: string;
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}> = ({
+  number,
+  title,
+  subtitle,
+  children,
+}) => (
+  <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+    <div className="flex items-center gap-3 pb-4 mb-5 border-b border-slate-100">
+      <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-700 font-bold flex items-center justify-center text-sm border border-blue-100">
+        {number}
+      </div>
+
+      <div>
+        <h3 className="text-base font-bold text-slate-900">
+          {title}
+        </h3>
+
+        <p className="text-xs text-slate-500">
+          {subtitle}
+        </p>
+      </div>
+    </div>
+
+    {children}
+  </div>
+);
+
+const Workflow: React.FC<{
+  number: string;
+  title: string;
+  subtitle: string;
+  className: string;
+}> = ({
+  number,
+  title,
+  subtitle,
+  className,
+}) => (
+  <div className="flex items-center gap-2.5 bg-slate-800/80 p-2.5 rounded-lg border border-slate-700/60">
+    <div
+      className={`w-6 h-6 rounded-full font-bold flex items-center justify-center shrink-0 ${className}`}
+    >
+      {number}
+    </div>
+
+    <div>
+      <div className="font-semibold text-white">
+        {title}
+      </div>
+
+      <div className="text-slate-400 text-[11px]">
+        {subtitle}
+      </div>
+    </div>
+  </div>
+);
+
+const TextInput: React.FC<{
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  icon?: React.ReactNode;
+}> = ({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required,
+  icon,
+}) => (
+  <div>
+    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+      {label}{' '}
+      {required && (
+        <span className="text-red-500">
+          *
+        </span>
+      )}
+    </label>
+
+    <div className="relative">
+      {icon && (
+        <div className="absolute left-3 top-3 text-slate-400">
+          {icon}
+        </div>
+      )}
+
+      <input
+        type="text"
+        required={required}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) =>
+          onChange(e.target.value)
+        }
+        className={`w-full ${
+          icon ? 'pl-9' : 'pl-3.5'
+        } pr-3.5 py-2.5 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500`}
+      />
+    </div>
+  </div>
+);
+
+const NumberInput: React.FC<{
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}> = ({
+  label,
+  value,
+  onChange,
+}) => (
+  <div>
+    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+      {label} *
+    </label>
+
+    <input
+      type="number"
+      min={1}
+      required
+      value={value}
+      onChange={(e) =>
+        onChange(
+          Math.max(
+            1,
+            Number(e.target.value) || 1
+          )
+        )
+      }
+      className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-300"
+    />
+  </div>
+);
+
+const SelectInput: React.FC<{
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<[string, string]>;
+}> = ({
+  label,
+  value,
+  onChange,
+  options,
+}) => (
+  <div>
+    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+      {label}
+    </label>
+
+    <select
+      value={value}
+      onChange={(e) =>
+        onChange(e.target.value)
+      }
+      className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-300 bg-white"
+    >
+      {options.map(
+        ([optionValue, optionLabel]) => (
+          <option
+            key={optionValue}
+            value={optionValue}
+          >
+            {optionLabel}
+          </option>
+        )
+      )}
+    </select>
+  </div>
+);
+
+const SourceButton: React.FC<{
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}> = ({
+  active,
+  onClick,
+  icon,
+  label,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
+      active
+        ? 'bg-white text-blue-900 shadow-sm border border-slate-200'
+        : 'text-slate-600 hover:text-slate-900'
+    }`}
+  >
+    <span className="text-blue-600">
+      {icon}
+    </span>
+    {label}
+  </button>
+);
+
+const InfoBox: React.FC<{
+  label: string;
+  value: string;
+}> = ({
+  label,
+  value,
+}) => (
+  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+    <div className="text-[10px] uppercase tracking-wide font-bold text-slate-400">
+      {label}
+    </div>
+
+    <div className="text-xs font-semibold text-slate-800 mt-1">
+      {value}
+    </div>
+  </div>
+);
