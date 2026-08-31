@@ -7,127 +7,115 @@ import {
   XCircle,
   Clock,
   Search,
-  Eye,
-  AlertCircle,
-  FileText,
-  Calculator,
-  X,
   RefreshCw,
+  FileText,
   ExternalLink,
-  Link as LinkIcon,
-  Download,
+  Eye,
+  RotateCcw,
+  AlertCircle,
+  X,
+  Printer,
+  History,
 } from 'lucide-react';
 
 interface KepsekDashboardProps {
   reviewerName: string;
-  canReview: boolean;
+  canReview?: boolean;
   onRequestUpdated: () => void;
 }
+
+type DashboardRequest = Omit<PhotocopyRequest, 'status'> & {
+  status: string;
+  revisionNotes?: string;
+  revisionRequestedAt?: string;
+  revisionRequestedBy?: string;
+  revisionCount?: number;
+  resubmittedAt?: string;
+};
+
+type ActionType = 'REVISION' | 'REJECT';
 
 export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
   reviewerName,
   canReview,
   onRequestUpdated,
 }) => {
-  const [requests, setRequests] = useState<PhotocopyRequest[]>([]);
-  const [loading, setLoading] = useState(true);
+  const reviewEnabled =
+    canReview ??
+    !reviewerName.toLowerCase().includes('administrator');
 
+  const [requests, setRequests] = useState<DashboardRequest[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedStatus, setSelectedStatus] =
     useState<string>('MENUNGGU');
-
   const [searchQuery, setSearchQuery] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [submittingId, setSubmittingId] =
+    useState<string | null>(null);
 
-  const [selectedRequest, setSelectedRequest] =
-    useState<PhotocopyRequest | null>(null);
+  const [actionTarget, setActionTarget] =
+    useState<DashboardRequest | null>(null);
+  const [actionType, setActionType] =
+    useState<ActionType | null>(null);
+  const [actionText, setActionText] = useState('');
 
-  const [approvalNotes, setApprovalNotes] = useState('');
-  const [rejectionReason, setRejectionReason] = useState('');
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [actionError, setActionError] = useState('');
-  const [openingFile, setOpeningFile] = useState(false);
-
-  // =====================================================
-  // MAPPING SUPABASE -> UI
-  // =====================================================
-
-  const mapRequest = (row: any): PhotocopyRequest => ({
+  const mapRequest = (row: any): DashboardRequest => ({
     id: row.id,
-
     teacherName: row.teacher_name,
     teacherNip: row.teacher_nip || undefined,
     teacherEmail: row.teacher_email || undefined,
-
     subjectClass: row.subject_class,
     title: row.title,
-
     fileName: row.file_name || 'Dokumen bahan ajar',
     fileSize: row.file_size || '',
     fileType: row.file_type || '',
     fileUrl: row.file_url || undefined,
-
     driveFolderUrl: row.drive_folder_url || undefined,
-
     pagesCount: row.pages_count,
     copiesCount: row.copies_count,
     totalSheets: row.total_sheets,
-
     paperSize: row.paper_size,
     colorOption: row.color_option,
     printSide: row.print_side,
     urgency: row.urgency,
-
     targetDate: row.target_date,
-
     notes: row.notes || undefined,
-
     status: row.status,
-
     submittedAt: row.submitted_at,
-
     reviewedAt: row.reviewed_at || undefined,
     reviewedBy: row.reviewed_by || undefined,
-
     rejectionReason: row.rejection_reason || undefined,
     approvalNotes: row.approval_notes || undefined,
-
     printedAt: row.printed_at || undefined,
     printedBy: row.printed_by || undefined,
-
     completedAt: row.completed_at || undefined,
+    revisionNotes: row.revision_notes || undefined,
+    revisionRequestedAt: row.revision_requested_at || undefined,
+    revisionRequestedBy: row.revision_requested_by || undefined,
+    revisionCount: row.revision_count || 0,
+    resubmittedAt: row.resubmitted_at || undefined,
   });
-
-  // =====================================================
-  // LOAD SEMUA PENGAJUAN
-  // =====================================================
 
   const fetchRequests = async () => {
     setLoading(true);
+    setErrorMsg('');
 
     try {
       const { data, error } = await supabase
         .from('photocopy_requests')
         .select('*')
-        .order('submitted_at', {
-          ascending: false,
-        });
+        .order('submitted_at', { ascending: false });
 
-      if (error) {
-        console.error(
-          'Supabase load requests error:',
-          error
-        );
+      if (error) throw error;
 
-        throw error;
-      }
-
-      setRequests(
-        (data || []).map(mapRequest)
-      );
-    } catch (err) {
-      console.error(
-        'Error loading requests:',
-        err
+      setRequests((data || []).map(mapRequest));
+    } catch (err: any) {
+      console.error('Load Kepsek requests error:', err);
+      setErrorMsg(
+        err?.message ||
+          'Gagal memuat daftar pengajuan.'
       );
     } finally {
       setLoading(false);
@@ -138,60 +126,40 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     fetchRequests();
   }, []);
 
-  // =====================================================
-  // BUKA DOKUMEN
-  //
-  // LINK -> buka langsung
-  // FILE STORAGE -> signed URL private
-  // =====================================================
+  const formatDate = (value?: string) => {
+    if (!value) return '-';
+    return new Date(value).toLocaleString('id-ID', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+  };
 
-  const handleOpenDocument = async (
-    request: PhotocopyRequest
-  ) => {
+  const openDocument = async (request: DashboardRequest) => {
     if (!request.fileUrl) {
-      setActionError(
-        'Dokumen tidak memiliki file atau tautan.'
-      );
+      setErrorMsg('Dokumen tidak tersedia.');
       return;
     }
 
-    setOpeningFile(true);
-    setActionError('');
+    setOpeningId(request.id);
+    setErrorMsg('');
 
     try {
-      // Jika sumber dokumen berupa link
       if (request.fileType === 'url/link') {
         window.open(
           request.fileUrl,
           '_blank',
           'noopener,noreferrer'
         );
-
         return;
       }
 
-      // Jika file tersimpan di bucket private Supabase
-      const { data, error } =
-        await supabase.storage
-          .from('photocopy-files')
-          .createSignedUrl(
-            request.fileUrl,
-            60 * 60
-          );
+      const { data, error } = await supabase.storage
+        .from('photocopy-files')
+        .createSignedUrl(request.fileUrl, 60 * 60);
 
-      if (error) {
-        console.error(
-          'Signed URL error:',
-          error
-        );
-
-        throw error;
-      }
-
+      if (error) throw error;
       if (!data?.signedUrl) {
-        throw new Error(
-          'Signed URL dokumen tidak tersedia.'
-        );
+        throw new Error('File tidak dapat dibuka.');
       }
 
       window.open(
@@ -200,49 +168,34 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         'noopener,noreferrer'
       );
     } catch (err: any) {
-      console.error(
-        'Open document error:',
-        err
-      );
-
-      setActionError(
-        err?.message ||
-          'Dokumen gagal dibuka.'
+      console.error('Open document error:', err);
+      setErrorMsg(
+        err?.message || 'Gagal membuka dokumen.'
       );
     } finally {
-      setOpeningFile(false);
+      setOpeningId(null);
     }
   };
 
-  // =====================================================
-  // SETUJUI / TOLAK
-  // =====================================================
-
-  const handleReviewAction = async (
-    action: 'APPROVE' | 'REJECT'
-  ) => {
-    if (!canReview) {
-  setActionError(
-    'Akun Administrator hanya memiliki akses pantau. Persetujuan dan penolakan hanya dapat dilakukan oleh Kepala Sekolah.'
-  );
-  return;
-}
-    if (!selectedRequest) return;
-
-    setActionError('');
-
-    if (
-      action === 'REJECT' &&
-      !rejectionReason.trim()
-    ) {
-      setActionError(
-        'Alasan penolakan wajib diisi agar guru mengetahui penyebabnya.'
+  const approveRequest = async (request: DashboardRequest) => {
+    if (!reviewEnabled) {
+      setErrorMsg(
+        'Akun Administrator hanya memiliki akses pantau. Keputusan hanya dapat dilakukan oleh Kepala Sekolah.'
       );
-
       return;
     }
 
-    setIsSubmitting(true);
+    if (
+      !window.confirm(
+        `Setujui pengajuan "${request.title}" dari ${request.teacherName}?`
+      )
+    ) {
+      return;
+    }
+
+    setSubmittingId(request.id);
+    setErrorMsg('');
+    setSuccessMsg('');
 
     try {
       const {
@@ -256,880 +209,645 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         );
       }
 
-      const now =
-        new Date().toISOString();
-
-      const updateData =
-        action === 'APPROVE'
-          ? {
-              status: 'DISETUJUI',
-
-              reviewed_at: now,
-
-              reviewed_by:
-                reviewerName,
-
-              reviewed_by_email:
-                user.email || null,
-
-              approval_notes:
-                approvalNotes.trim() ||
-                null,
-
-              rejection_reason:
-                null,
-            }
-          : {
-              status: 'DITOLAK',
-
-              reviewed_at: now,
-
-              reviewed_by:
-                reviewerName,
-
-              reviewed_by_email:
-                user.email || null,
-
-              rejection_reason:
-                rejectionReason.trim(),
-
-              approval_notes:
-                null,
-            };
-
       const { error } = await supabase
         .from('photocopy_requests')
-        .update(updateData)
-        .eq('id', selectedRequest.id);
+        .update({
+          status: 'DISETUJUI',
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: reviewerName,
+          reviewed_by_email: user.email || null,
+          approval_notes: null,
+          rejection_reason: null,
+        })
+        .eq('id', request.id)
+        .eq('status', 'MENUNGGU');
 
-      if (error) {
-        console.error(
-          'Supabase review error:',
-          error
-        );
+      if (error) throw error;
 
-        throw error;
-      }
+      setSuccessMsg(
+        `${request.id} disetujui dan diteruskan ke antrean Resource.`
+      );
 
       await fetchRequests();
-
       onRequestUpdated();
-
-      setSelectedRequest(null);
-      setApprovalNotes('');
-      setRejectionReason('');
     } catch (err: any) {
-      console.error(
-        'Review error:',
-        err
-      );
-
-      setActionError(
-        err?.message ||
-          'Gagal memproses keputusan.'
+      console.error('Approve error:', err);
+      setErrorMsg(
+        err?.message || 'Gagal menyetujui pengajuan.'
       );
     } finally {
-      setIsSubmitting(false);
+      setSubmittingId(null);
     }
   };
 
-  // =====================================================
-  // METRICS
-  // =====================================================
-
-  const pendingCount =
-    requests.filter(
-      (r) =>
-        r.status === 'MENUNGGU'
-    ).length;
-
-  const approvedCount =
-    requests.filter(
-      (r) =>
-        r.status === 'DISETUJUI' ||
-        r.status === 'SEDANG_DICETAK' ||
-        r.status === 'SELESAI'
-    ).length;
-
-  const completedCount =
-  requests.filter(
-    (r) => r.status === 'SELESAI'
-  ).length;
-
-  const rejectedCount =
-  requests.filter(
-    (r) => r.status === 'DITOLAK'
-  ).length;
-
-  const totalSheetsApproved =
-    requests
-      .filter(
-        (r) =>
-          r.status === 'DISETUJUI' ||
-          r.status === 'SEDANG_DICETAK' ||
-          r.status === 'SELESAI'
-      )
-      .reduce(
-        (acc, r) =>
-          acc +
-          (r.totalSheets || 0),
-        0
+  const openAction = (
+    request: DashboardRequest,
+    type: ActionType
+  ) => {
+    if (!reviewEnabled) {
+      setErrorMsg(
+        'Akun Administrator hanya memiliki akses pantau.'
       );
+      return;
+    }
 
-  // =====================================================
-  // FILTER
-  // =====================================================
+    setActionTarget(request);
+    setActionType(type);
+    setActionText('');
+    setErrorMsg('');
+  };
 
-  const filteredRequests =
-    useMemo(() => {
-      return requests.filter(
-        (r) => {
-          const matchesStatus =
-            selectedStatus ===
-              'ALL' ||
-            (selectedStatus ===
-              'MENUNGGU' &&
-              r.status ===
-                'MENUNGGU') ||
-            (selectedStatus ===
-              'DISETUJUI' &&
-              [
-                'DISETUJUI',
-                'SEDANG_DICETAK',
-                'SELESAI',
-              ].includes(
-                r.status
-              )) ||
-            (selectedStatus === 'SELESAI' &&
-  r.status === 'SELESAI') ||
-            (selectedStatus ===
-              'DITOLAK' &&
-              r.status ===
-                'DITOLAK');
+  const submitAction = async () => {
+    if (!actionTarget || !actionType) return;
 
-          const q =
-            searchQuery
-              .trim()
-              .toLowerCase();
+    if (!actionText.trim()) {
+      setErrorMsg(
+        actionType === 'REVISION'
+          ? 'Catatan revisi wajib diisi.'
+          : 'Alasan penolakan wajib diisi.'
+      );
+      return;
+    }
 
-          const matchesSearch =
-            !q ||
-            r.id
-              .toLowerCase()
-              .includes(q) ||
-            r.teacherName
-              .toLowerCase()
-              .includes(q) ||
-            r.title
-              .toLowerCase()
-              .includes(q) ||
-            r.subjectClass
-              .toLowerCase()
-              .includes(q);
+    setSubmittingId(actionTarget.id);
+    setErrorMsg('');
+    setSuccessMsg('');
 
-          return (
-            matchesStatus &&
-            matchesSearch
+    try {
+      if (actionType === 'REVISION') {
+        const { error } = await supabase.rpc(
+          'kepsek_request_revision',
+          {
+            p_request_id: actionTarget.id,
+            p_revision_notes: actionText.trim(),
+          }
+        );
+
+        if (error) throw error;
+
+        setSuccessMsg(
+          `${actionTarget.id} dikembalikan kepada guru untuk diperbaiki.`
+        );
+      } else {
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          throw new Error(
+            'Sesi login tidak ditemukan. Silakan login ulang.'
           );
         }
-      );
-    }, [
-      requests,
-      selectedStatus,
-      searchQuery,
-    ]);
 
-  // =====================================================
-  // UI
-  // =====================================================
+        const { error } = await supabase
+          .from('photocopy_requests')
+          .update({
+            status: 'DITOLAK',
+            reviewed_at: new Date().toISOString(),
+            reviewed_by: reviewerName,
+            reviewed_by_email: user.email || null,
+            rejection_reason: actionText.trim(),
+            approval_notes: null,
+          })
+          .eq('id', actionTarget.id)
+          .eq('status', 'MENUNGGU');
+
+        if (error) throw error;
+
+        setSuccessMsg(
+          `${actionTarget.id} ditolak dan tersimpan dalam riwayat.`
+        );
+      }
+
+      setActionTarget(null);
+      setActionType(null);
+      setActionText('');
+
+      await fetchRequests();
+      onRequestUpdated();
+    } catch (err: any) {
+      console.error('Decision error:', err);
+      setErrorMsg(
+        err?.message || 'Gagal memproses keputusan.'
+      );
+    } finally {
+      setSubmittingId(null);
+    }
+  };
+
+  const counts = useMemo(
+    () => ({
+      MENUNGGU: requests.filter(
+        (r) => r.status === 'MENUNGGU'
+      ).length,
+      PERLU_REVISI: requests.filter(
+        (r) => r.status === 'PERLU_REVISI'
+      ).length,
+      DISETUJUI: requests.filter((r) =>
+        [
+          'DISETUJUI',
+          'SEDANG_DICETAK',
+          'SELESAI',
+        ].includes(r.status)
+      ).length,
+      SELESAI: requests.filter(
+        (r) => r.status === 'SELESAI'
+      ).length,
+      DITOLAK: requests.filter(
+        (r) => r.status === 'DITOLAK'
+      ).length,
+    }),
+    [requests]
+  );
+
+  const filteredRequests = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+
+    return requests.filter((r) => {
+      const matchesStatus =
+        selectedStatus === 'ALL' ||
+        (selectedStatus === 'DISETUJUI'
+          ? [
+              'DISETUJUI',
+              'SEDANG_DICETAK',
+              'SELESAI',
+            ].includes(r.status)
+          : r.status === selectedStatus);
+
+      const matchesSearch =
+        !q ||
+        r.id.toLowerCase().includes(q) ||
+        r.teacherName.toLowerCase().includes(q) ||
+        r.subjectClass.toLowerCase().includes(q) ||
+        r.title.toLowerCase().includes(q);
+
+      return matchesStatus && matchesSearch;
+    });
+  }, [requests, selectedStatus, searchQuery]);
+
+  const getStatusBadge = (status: string) => {
+    if (status === 'MENUNGGU') {
+      return (
+        <span className="px-2 py-1 rounded text-[10px] font-bold bg-amber-100 text-amber-700">
+          MENUNGGU
+        </span>
+      );
+    }
+
+    if (status === 'PERLU_REVISI') {
+      return (
+        <span className="px-2 py-1 rounded text-[10px] font-bold bg-violet-100 text-violet-700">
+          PERLU REVISI
+        </span>
+      );
+    }
+
+    if (status === 'DITOLAK') {
+      return (
+        <span className="px-2 py-1 rounded text-[10px] font-bold bg-red-100 text-red-700">
+          DITOLAK
+        </span>
+      );
+    }
+
+    if (status === 'SEDANG_DICETAK') {
+      return (
+        <span className="px-2 py-1 rounded text-[10px] font-bold bg-blue-100 text-blue-700">
+          SEDANG DICETAK
+        </span>
+      );
+    }
+
+    if (status === 'SELESAI') {
+      return (
+        <span className="px-2 py-1 rounded text-[10px] font-bold bg-slate-200 text-slate-700">
+          PERNAH DIFOTOKOPI
+        </span>
+      );
+    }
+
+    return (
+      <span className="px-2 py-1 rounded text-[10px] font-bold bg-green-100 text-green-700">
+        DISETUJUI
+      </span>
+    );
+  };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-
-      {/* HEADER */}
-      <div className="bg-slate-900 text-white rounded-xl p-6 sm:p-8 shadow-sm border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-5">
+      <div className="bg-slate-900 text-white rounded-xl p-6 sm:p-8 border border-slate-800 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 mb-3">
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>
-              Portal Kepala Sekolah
-            </span>
+            Portal Kepala Sekolah
           </div>
 
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1">
-            Dashboard Peninjauan & Persetujuan Cetak
+          <h2 className="text-2xl sm:text-3xl font-bold">
+            Quick Decision Pengajuan Fotokopi
           </h2>
 
-          <p className="text-slate-300 text-xs sm:text-sm">
-            Selamat datang,{' '}
-            <strong className="text-blue-400 font-bold">
-              {reviewerName}
-            </strong>
-            . Evaluasi dan berikan keputusan terhadap pengajuan guru.
+          <p className="text-xs sm:text-sm text-slate-300 mt-1">
+            {reviewEnabled
+              ? 'Buka file dan berikan keputusan langsung dari daftar.'
+              : 'Mode pantau Administrator. Keputusan hanya dapat dilakukan oleh Kepala Sekolah.'}
           </p>
-
         </div>
 
         <button
+          type="button"
           onClick={fetchRequests}
           disabled={loading}
-          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center gap-2 shrink-0"
+          className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold flex items-center gap-2"
         >
           <RefreshCw
             className={`w-4 h-4 ${
-              loading
-                ? 'animate-spin'
-                : ''
+              loading ? 'animate-spin' : ''
             }`}
           />
-
-          <span>
-            Muat Ulang Data
-          </span>
+          Muat Ulang
         </button>
-
       </div>
 
-      {/* KPI */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-
-        <button
-          onClick={() =>
-            setSelectedStatus(
-              'MENUNGGU'
-            )
-          }
-          className="text-left p-5 rounded-xl border bg-amber-50 border-amber-200"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold uppercase text-amber-700">
-              Menunggu Review
-            </span>
-
-            <Clock className="w-5 h-5 text-amber-600" />
-          </div>
-
-          <div className="text-3xl font-bold text-amber-900">
-            {pendingCount}
-          </div>
-        </button>
-
-        <button
-          onClick={() =>
-            setSelectedStatus(
-              'DISETUJUI'
-            )
-          }
-          className="text-left p-5 rounded-xl border bg-green-50 border-green-200"
-        >
-          <div className="flex items-center justify-between mb-2">
-
-            <span className="text-xs font-bold uppercase text-green-700">
-              Disetujui
-            </span>
-
-            <CheckCircle2 className="w-5 h-5 text-green-600" />
-
-          </div>
-
-          <div className="text-3xl font-bold text-green-900">
-            {approvedCount}
-          </div>
-        </button>
-
-        <button
-          onClick={() =>
-            setSelectedStatus(
-              'DITOLAK'
-            )
-          }
-          className="text-left p-5 rounded-xl border bg-red-50 border-red-200"
-        >
-          <div className="flex items-center justify-between mb-2">
-
-            <span className="text-xs font-bold uppercase text-red-700">
-              Ditolak
-            </span>
-
-            <XCircle className="w-5 h-5 text-red-600" />
-
-          </div>
-
-          <div className="text-3xl font-bold text-red-900">
-            {rejectedCount}
-          </div>
-        </button>
-
-        <div className="p-5 bg-slate-900 text-white rounded-xl border border-slate-800">
-
-          <div className="flex items-center justify-between mb-2">
-
-            <span className="text-xs font-bold uppercase text-slate-400">
-              Total HVS ACC
-            </span>
-
-            <Calculator className="w-5 h-5 text-blue-400" />
-
-          </div>
-
-          <div className="text-3xl font-bold text-blue-400">
-            {totalSheetsApproved}
-          </div>
-
-          <div className="text-[11px] text-slate-400 mt-1">
-            Lembar disetujui
-          </div>
-
+      {successMsg && (
+        <div className="bg-green-50 border border-green-200 text-green-800 rounded-xl p-4 text-xs font-semibold flex items-center justify-between gap-3">
+          <span>{successMsg}</span>
+          <button
+            type="button"
+            onClick={() => setSuccessMsg('')}
+            className="underline font-bold"
+          >
+            Tutup
+          </button>
         </div>
+      )}
 
+      {errorMsg && (
+        <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 text-xs font-semibold flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span className="flex-1">{errorMsg}</span>
+          <button
+            type="button"
+            onClick={() => setErrorMsg('')}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <Metric
+          label="Menunggu"
+          value={counts.MENUNGGU}
+          onClick={() => setSelectedStatus('MENUNGGU')}
+          className="bg-amber-50 border-amber-200 text-amber-800"
+        />
+
+        <Metric
+          label="Perlu Revisi"
+          value={counts.PERLU_REVISI}
+          onClick={() =>
+            setSelectedStatus('PERLU_REVISI')
+          }
+          className="bg-violet-50 border-violet-200 text-violet-800"
+        />
+
+        <Metric
+          label="Disetujui"
+          value={counts.DISETUJUI}
+          onClick={() => setSelectedStatus('DISETUJUI')}
+          className="bg-green-50 border-green-200 text-green-800"
+        />
+
+        <Metric
+          label="Riwayat"
+          value={counts.SELESAI}
+          onClick={() => setSelectedStatus('SELESAI')}
+          className="bg-slate-50 border-slate-200 text-slate-800"
+        />
+
+        <Metric
+          label="Ditolak"
+          value={counts.DITOLAK}
+          onClick={() => setSelectedStatus('DITOLAK')}
+          className="bg-red-50 border-red-200 text-red-800"
+        />
       </div>
 
-      {/* FILTER */}
-      <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 flex flex-col lg:flex-row items-center justify-between gap-4">
-
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-lg w-full lg:w-auto overflow-x-auto text-xs">
-
+      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col lg:flex-row gap-3 justify-between">
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-lg overflow-x-auto">
           {[
-  ['MENUNGGU', `Menunggu (${pendingCount})`],
-  ['DISETUJUI', `Disetujui (${approvedCount})`],
-  ['SELESAI', `Riwayat Fotokopi (${completedCount})`],
-  ['DITOLAK', `Ditolak (${rejectedCount})`],
-  ['ALL', `Semua (${requests.length})`],
-].map(
-            ([value, label]) => (
-              <button
-                key={value}
-                onClick={() =>
-                  setSelectedStatus(
-                    value
-                  )
-                }
-                className={`px-3 py-2 font-bold rounded-lg whitespace-nowrap ${
-                  selectedStatus ===
-                  value
-                    ? 'bg-slate-900 text-white'
-                    : 'text-slate-600 hover:bg-white'
-                }`}
-              >
-                {label}
-              </button>
-            )
-          )}
-
+            ['MENUNGGU', `Menunggu (${counts.MENUNGGU})`],
+            [
+              'PERLU_REVISI',
+              `Perlu Revisi (${counts.PERLU_REVISI})`,
+            ],
+            ['DISETUJUI', `Disetujui (${counts.DISETUJUI})`],
+            ['SELESAI', `Riwayat (${counts.SELESAI})`],
+            ['DITOLAK', `Ditolak (${counts.DITOLAK})`],
+            ['ALL', `Semua (${requests.length})`],
+          ].map(([value, label]) => (
+            <button
+              type="button"
+              key={value}
+              onClick={() => setSelectedStatus(value)}
+              className={`px-3 py-2 whitespace-nowrap rounded-lg text-xs font-bold ${
+                selectedStatus === value
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-white'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         <div className="relative w-full lg:w-80">
-
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
-            type="text"
-            placeholder="Cari guru, judul, kelas, atau ID..."
             value={searchQuery}
-            onChange={(e) =>
-              setSearchQuery(
-                e.target.value
-              )
-            }
-            className="w-full px-3.5 py-2 pl-9 text-xs bg-slate-50 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Cari guru, judul, kelas, atau ID..."
+            className="w-full pl-9 pr-3 py-2.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-400"
           />
-
         </div>
-
       </div>
 
-      {/* TABLE */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-slate-400">
-
-            <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-blue-600" />
-
+          <div className="p-14 text-center text-slate-500">
+            <RefreshCw className="w-7 h-7 animate-spin mx-auto mb-3 text-blue-600" />
             <p className="text-xs font-semibold">
-              Memuat daftar pengajuan...
+              Memuat pengajuan...
             </p>
-
           </div>
-        ) : filteredRequests.length ===
-          0 ? (
-          <div className="p-12 text-center text-slate-400">
-
-            <FileText className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-
-            <p className="text-sm font-bold text-slate-700">
-              Tidak ada pengajuan ditemukan
+        ) : filteredRequests.length === 0 ? (
+          <div className="p-14 text-center text-slate-500">
+            <FileText className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+            <p className="font-bold text-slate-800">
+              Tidak ada pengajuan
             </p>
-
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="divide-y divide-slate-100">
+            {filteredRequests.map((request) => (
+              <div
+                key={request.id}
+                className="p-4 hover:bg-slate-50"
+              >
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-4 lg:items-center">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {getStatusBadge(request.status)}
+                      {request.urgency === 'TINGGI' && (
+                        <span className="px-2 py-1 rounded text-[9px] font-bold bg-red-100 text-red-700">
+                          URGENT
+                        </span>
+                      )}
+                      <span className="font-mono text-[10px] font-bold text-blue-700">
+                        {request.id}
+                      </span>
+                    </div>
 
-            <table className="w-full text-left text-xs border-collapse">
+                    <h3 className="font-bold text-slate-900 text-sm mt-2">
+                      {request.title}
+                    </h3>
 
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                    <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                      <span>
+                        <strong className="text-slate-700">
+                          {request.teacherName}
+                        </strong>{' '}
+                        • {request.subjectClass}
+                      </span>
+                      <span>
+                        {request.pagesCount} hal ×{' '}
+                        {request.copiesCount} salinan •{' '}
+                        {request.totalSheets} lembar
+                      </span>
+                      <span>
+                        Target: {request.targetDate}
+                      </span>
+                    </div>
 
-                  <th className="py-3.5 px-4">
-                    Tracking ID
-                  </th>
+                    {request.status === 'PERLU_REVISI' &&
+                      request.revisionNotes && (
+                        <div className="mt-2 text-[11px] text-violet-800 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
+                          <strong>Catatan revisi:</strong>{' '}
+                          {request.revisionNotes}
+                        </div>
+                      )}
+                  </div>
 
-                  <th className="py-3.5 px-4">
-                    Guru & Kelas
-                  </th>
-
-                  <th className="py-3.5 px-4">
-                    Bahan Ajar
-                  </th>
-
-                  <th className="py-3.5 px-4">
-                    Spesifikasi
-                  </th>
-
-                  <th className="py-3.5 px-4 text-center">
-                    HVS
-                  </th>
-
-                  <th className="py-3.5 px-4">
-                    Status
-                  </th>
-
-                  <th className="py-3.5 px-4 text-right">
-                    Aksi
-                  </th>
-
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-slate-100">
-
-                {filteredRequests.map(
-                  (req) => (
-                    <tr
-                      key={req.id}
-                      className="hover:bg-slate-50"
+                  <div className="flex flex-wrap gap-2 lg:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => openDocument(request)}
+                      disabled={
+                        openingId === request.id ||
+                        !request.fileUrl
+                      }
+                      className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 rounded-lg text-[11px] font-bold text-slate-700 flex items-center gap-1.5 disabled:opacity-40"
                     >
+                      {request.fileType === 'url/link' ? (
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      ) : (
+                        <Eye className="w-3.5 h-3.5" />
+                      )}
+                      Lihat File
+                    </button>
 
-                      <td className="py-3.5 px-4 whitespace-nowrap">
+                    {reviewEnabled &&
+                      request.status === 'MENUNGGU' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              approveRequest(request)
+                            }
+                            disabled={
+                              submittingId === request.id
+                            }
+                            className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Setujui
+                          </button>
 
-                        <div className="font-mono font-bold text-slate-900">
-                          {req.id}
-                        </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openAction(
+                                request,
+                                'REVISION'
+                              )
+                            }
+                            disabled={
+                              submittingId === request.id
+                            }
+                            className="px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Perlu Revisi
+                          </button>
 
-                        <div className="text-[10px] text-slate-400">
-                          {new Date(
-                            req.submittedAt
-                          ).toLocaleString(
-                            'id-ID'
-                          )}
-                        </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openAction(
+                                request,
+                                'REJECT'
+                              )
+                            }
+                            disabled={
+                              submittingId === request.id
+                            }
+                            className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            Tolak
+                          </button>
+                        </>
+                      )}
 
-                      </td>
+                    {request.status ===
+                      'SEDANG_DICETAK' && (
+                      <span className="px-3 py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-[11px] font-bold flex items-center gap-1.5">
+                        <Printer className="w-3.5 h-3.5" />
+                        Diproses Resource
+                      </span>
+                    )}
 
-                      <td className="py-3.5 px-4">
-
-                        <div className="font-bold text-slate-900">
-                          {req.teacherName}
-                        </div>
-
-                        <div className="text-[11px] text-slate-500">
-                          {req.subjectClass}
-                        </div>
-
-                      </td>
-
-                      <td className="py-3.5 px-4 max-w-xs">
-
-                        <div className="font-semibold text-slate-900 truncate">
-                          {req.title}
-                        </div>
-
-                        <div className="text-[10px] text-slate-400 truncate">
-                          {req.fileName}
-                        </div>
-
-                      </td>
-
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-
-                        <div className="font-semibold">
-                          {req.pagesCount}{' '}
-                          hal ×{' '}
-                          {req.copiesCount}{' '}
-                          salinan
-                        </div>
-
-                        <div className="text-[10px] text-slate-500">
-                          {req.paperSize} |{' '}
-                          {req.colorOption ===
-                          'COLOR'
-                            ? 'Color'
-                            : 'B/W'}{' '}
-                          |{' '}
-                          {req.printSide ===
-                          'DOUBLE'
-                            ? '2 Sisi'
-                            : '1 Sisi'}
-                        </div>
-
-                      </td>
-
-                      <td className="py-3.5 px-4 text-center">
-
-                        <span className="font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded">
-                          {req.totalSheets}
-                        </span>
-
-                      </td>
-
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-
-                        <span
-                          className={`px-2 py-1 rounded text-[10px] font-bold ${
-                            req.status ===
-                            'MENUNGGU'
-                              ? 'bg-amber-100 text-amber-700'
-                              : req.status ===
-                                'DITOLAK'
-                              ? 'bg-red-100 text-red-700'
-                              : 'bg-green-100 text-green-700'
-                          }`}
-                        >
-                          {req.status === 'SELESAI'
-  ? 'PERNAH DIFOTOKOPI'
-  : req.status === 'SEDANG_DICETAK'
-  ? 'SEDANG DIPROSES'
-  : req.status}
-                        </span>
-
-                      </td>
-
-                      <td className="py-3.5 px-4 text-right">
-
-                        <button
-                          onClick={() => {
-                            setSelectedRequest(
-                              req
-                            );
-
-                            setApprovalNotes(
-                              req.approvalNotes ||
-                                ''
-                            );
-
-                            setRejectionReason(
-                              req.rejectionReason ||
-                                ''
-                            );
-
-                            setActionError(
-                              ''
-                            );
-                          }}
-                          className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg inline-flex items-center gap-1.5"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          Tinjau
-                        </button>
-
-                      </td>
-
-                    </tr>
-                  )
-                )}
-
-              </tbody>
-            </table>
-
+                    {request.status === 'SELESAI' && (
+                      <span className="px-3 py-2 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-bold flex items-center gap-1.5">
+                        <History className="w-3.5 h-3.5" />
+                        Selesai
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
-
       </div>
 
-      {/* REVIEW MODAL */}
-      {selectedRequest && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-
-          <div className="bg-white rounded-xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl my-8">
-
-            <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-100">
-
+      {actionTarget && actionType && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 p-6">
+            <div className="flex items-start justify-between gap-4">
               <div>
+                <div
+                  className={`text-[10px] font-bold uppercase ${
+                    actionType === 'REVISION'
+                      ? 'text-violet-700'
+                      : 'text-red-700'
+                  }`}
+                >
+                  {actionType === 'REVISION'
+                    ? 'Perlu Revisi'
+                    : 'Tolak Pengajuan'}
+                </div>
 
-                <span className="text-[10px] font-bold text-blue-600">
-                  PENINJAUAN KEPALA SEKOLAH
-                </span>
-
-                <h3 className="text-xl font-bold text-slate-900">
-                  {selectedRequest.title}
+                <h3 className="text-lg font-bold text-slate-900 mt-1">
+                  {actionTarget.title}
                 </h3>
 
-                <p className="text-xs text-slate-500">
-                  {selectedRequest.teacherName}{' '}
-                  •{' '}
-                  {selectedRequest.subjectClass}
+                <p className="text-xs text-slate-500 mt-1">
+                  {actionTarget.teacherName} •{' '}
+                  {actionTarget.id}
                 </p>
-
               </div>
 
               <button
-                onClick={() =>
-                  setSelectedRequest(
-                    null
-                  )
-                }
+                type="button"
+                onClick={() => {
+                  setActionTarget(null);
+                  setActionType(null);
+                  setActionText('');
+                }}
               >
                 <X className="w-5 h-5 text-slate-400" />
               </button>
-
             </div>
 
-            <div className="py-5 space-y-4">
+            <div className="mt-5">
+              <label className="block text-xs font-bold text-slate-700 mb-2">
+                {actionType === 'REVISION'
+                  ? 'Apa yang perlu diperbaiki guru?'
+                  : 'Alasan penolakan'}
+              </label>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-lg border text-xs">
+              <textarea
+                value={actionText}
+                onChange={(e) => setActionText(e.target.value)}
+                rows={5}
+                autoFocus
+                placeholder={
+                  actionType === 'REVISION'
+                    ? 'Contoh: Mohon jumlah salinan diubah menjadi 28 dan file diganti dengan versi terbaru.'
+                    : 'Tuliskan alasan pengajuan ditolak...'
+                }
+                className="w-full px-3 py-3 border border-slate-300 rounded-xl text-sm outline-none focus:border-blue-400"
+              />
+            </div>
 
-                <div>
-                  <span className="text-slate-400 block">
-                    File
-                  </span>
-
-                  <strong>
-                    {
-                      selectedRequest.fileName
-                    }
-                  </strong>
-                </div>
-
-                <div>
-                  <span className="text-slate-400 block">
-                    Cetak
-                  </span>
-
-                  <strong>
-                    {
-                      selectedRequest.pagesCount
-                    }{' '}
-                    ×{' '}
-                    {
-                      selectedRequest.copiesCount
-                    }
-                  </strong>
-                </div>
-
-                <div>
-                  <span className="text-slate-400 block">
-                    Kertas
-                  </span>
-
-                  <strong className="text-blue-700">
-                    {
-                      selectedRequest.totalSheets
-                    }{' '}
-                    lembar
-                  </strong>
-                </div>
-
-                <div>
-                  <span className="text-slate-400 block">
-                    Target
-                  </span>
-
-                  <strong>
-                    {
-                      selectedRequest.targetDate
-                    }
-                  </strong>
-                </div>
-
-              </div>
-{selectedRequest.status === 'SELESAI' && (
-  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-    <div className="flex items-center gap-2 text-green-800 font-bold text-xs">
-      <CheckCircle2 className="w-4 h-4" />
-      PERNAH DIFOTOKOPI
-    </div>
-
-    <div className="text-xs text-green-700 mt-2">
-      Pengajuan ini telah selesai diproses dan menjadi bagian dari
-      riwayat fotokopi sekolah.
-    </div>
-
-    {selectedRequest.completedAt && (
-      <div className="text-[11px] text-green-700 mt-2">
-        Selesai pada:{' '}
-        <strong>
-          {new Date(
-            selectedRequest.completedAt
-          ).toLocaleString('id-ID')}
-        </strong>
-      </div>
-    )}
-  </div>
-)}
-              {/* OPEN DOCUMENT */}
+            <div className="flex gap-2 mt-5">
               <button
                 type="button"
-                onClick={() =>
-                  handleOpenDocument(
-                    selectedRequest
-                  )
-                }
-                disabled={
-                  openingFile ||
-                  !selectedRequest.fileUrl
-                }
-                className="w-full p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between gap-3 hover:bg-blue-100 disabled:opacity-50"
-              >
-
-                <div className="flex items-center gap-3 text-left">
-
-                  {selectedRequest.fileType ===
-                  'url/link' ? (
-                    <LinkIcon className="w-5 h-5 text-blue-700" />
-                  ) : (
-                    <Download className="w-5 h-5 text-blue-700" />
-                  )}
-
-                  <div>
-
-                    <div className="font-bold text-blue-900 text-xs">
-                      {selectedRequest.fileType ===
-                      'url/link'
-                        ? 'Buka Tautan Dokumen'
-                        : 'Buka File Bahan Ajar'}
-                    </div>
-
-                    <div className="text-[11px] text-blue-700">
-                      {
-                        selectedRequest.fileName
-                      }
-                    </div>
-
-                  </div>
-
-                </div>
-
-                <ExternalLink className="w-4 h-4 text-blue-700" />
-
-              </button>
-
-              {selectedRequest.notes && (
-                <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-xs text-amber-900">
-
-                  <strong>
-                    Catatan Guru:
-                  </strong>{' '}
-
-                  {selectedRequest.notes}
-
-                </div>
-              )}
-
-              {actionError && (
-                <div className="p-3 bg-red-50 border border-red-200 text-red-800 rounded-lg text-xs flex items-center gap-2">
-
-                  <AlertCircle className="w-4 h-4" />
-
-                  {actionError}
-
-                </div>
-              )}
-
-              <div>
-
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Catatan Persetujuan
-                </label>
-
-                <input
-                  type="text"
-                  placeholder="Contoh: ACC, silakan dicetak."
-                  value={
-                    approvalNotes
-                  }
-                  onChange={(e) =>
-                    setApprovalNotes(
-                      e.target.value
-                    )
-                  }
-                  className="w-full px-3.5 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-
-              </div>
-
-              <div>
-
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Alasan Penolakan
-                </label>
-
-                <textarea
-                  rows={3}
-                  placeholder="Wajib diisi jika pengajuan ditolak."
-                  value={
-                    rejectionReason
-                  }
-                  onChange={(e) =>
-                    setRejectionReason(
-                      e.target.value
-                    )
-                  }
-                  className="w-full px-3.5 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-500"
-                />
-
-              </div>
-
-            </div>
-
-            <div className="pt-4 border-t flex flex-col sm:flex-row justify-end gap-3">
-
-              <button
-                onClick={() =>
-                  setSelectedRequest(
-                    null
-                  )
-                }
-                className="px-4 py-2 border border-slate-200 rounded-lg text-xs font-bold"
+                onClick={() => {
+                  setActionTarget(null);
+                  setActionType(null);
+                  setActionText('');
+                }}
+                className="flex-1 py-2.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-600"
               >
                 Batal
               </button>
 
-              {canReview ? (
-  <>
-    <button
-      disabled={isSubmitting}
-      onClick={() =>
-        handleReviewAction('REJECT')
-      }
-      className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
-    >
-      Tolak Pengajuan
-    </button>
-
-    <button
-      disabled={isSubmitting}
-      onClick={() =>
-        handleReviewAction('APPROVE')
-      }
-      className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
-    >
-      Setujui (ACC)
-    </button>
-  </>
-) : (
-  <div className="flex-1 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-xs font-semibold">
-    Mode Pantau Admin — Anda dapat mengecek pengajuan dan dokumen, tetapi keputusan Setujui/Tolak hanya dapat dilakukan oleh Kepala Sekolah.
-  </div>
-)}
-
+              <button
+                type="button"
+                onClick={submitAction}
+                disabled={
+                  submittingId === actionTarget.id ||
+                  !actionText.trim()
+                }
+                className={`flex-1 py-2.5 text-white rounded-lg text-xs font-bold disabled:opacity-50 ${
+                  actionType === 'REVISION'
+                    ? 'bg-violet-600 hover:bg-violet-700'
+                    : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                {submittingId === actionTarget.id
+                  ? 'Memproses...'
+                  : actionType === 'REVISION'
+                  ? 'Kirim Permintaan Revisi'
+                  : 'Tolak Pengajuan'}
+              </button>
             </div>
-
           </div>
         </div>
       )}
-
     </div>
   );
 };
+
+const Metric: React.FC<{
+  label: string;
+  value: number;
+  onClick: () => void;
+  className: string;
+}> = ({ label, value, onClick, className }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`text-left rounded-xl border p-4 shadow-sm ${className}`}
+  >
+    <div className="text-[10px] uppercase tracking-wide font-bold">
+      {label}
+    </div>
+    <div className="text-2xl font-extrabold mt-1">
+      {value}
+    </div>
+  </button>
+);
