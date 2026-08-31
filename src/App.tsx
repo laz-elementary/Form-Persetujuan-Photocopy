@@ -108,16 +108,25 @@ export default function App() {
           undefined,
       };
 
+      // Hanya memuat identitas user.
+      // Jangan memindahkan halaman di sini karena fungsi ini juga
+      // dipanggil ketika Supabase me-refresh session/token.
+      // Dengan begitu, pindah browser tab tidak menutup halaman
+      // yang sedang dibuka atau form yang sedang diisi.
       setCurrentUser(staffUser);
       setShowLoginModal(false);
 
-      if (data.role === 'KEPSEK') {
-        navigateToTab('KEPSEK', true);
-      } else if (data.role === 'ADMIN') {
-        navigateToTab('ADMIN', true);
-      } else if (data.role === 'RESOURCE') {
-        navigateToTab('RESOURCE', true);
-      } else {
+      const currentTab = getTabFromPath();
+
+      const allowed =
+        currentTab === 'FORM' ||
+        currentTab === 'TRACK' ||
+        (currentTab === 'KEPSEK' &&
+          (staffUser.role === 'KEPSEK' || staffUser.role === 'ADMIN')) ||
+        (currentTab === 'ADMIN' && staffUser.role === 'ADMIN') ||
+        (currentTab === 'RESOURCE' && staffUser.role === 'RESOURCE');
+
+      if (!allowed) {
         navigateToTab('FORM', true);
       }
     } catch (err) {
@@ -266,12 +275,14 @@ export default function App() {
       />
 
       <main className="flex-1 pb-16">
-        {activeTab === 'FORM' && (
+        {/* Form Guru selalu tetap mounted agar draft, pilihan file,
+            dan input tidak hilang saat pengguna pindah menu sebentar. */}
+        <div className={activeTab === 'FORM' ? 'block' : 'hidden'}>
           <TeacherSubmissionForm
             onSubmitted={handleSubmittedNewRequest}
             onGoToTrack={handleGoToTrack}
           />
-        )}
+        </div>
 
         {activeTab === 'TRACK' && (
           <StatusTracker initialTrackingCode={trackCode} />
