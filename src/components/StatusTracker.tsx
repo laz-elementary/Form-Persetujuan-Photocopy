@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { PhotocopyRequest, RequestStatus } from '../types';
 import { supabase } from '../lib/supabase';
 import {
   Clock,
@@ -17,6 +16,8 @@ import {
   ShieldCheck,
   History,
   Search,
+  RotateCcw,
+  Upload,
 } from 'lucide-react';
 
 interface StatusTrackerProps {
@@ -26,35 +27,98 @@ interface StatusTrackerProps {
 type HistoryFilter =
   | 'SEMUA'
   | 'MENUNGGU'
+  | 'PERLU_REVISI'
   | 'DISETUJUI'
   | 'SEDANG_DICETAK'
   | 'SELESAI'
   | 'DITOLAK';
 
+type TrackerRequest = {
+  id: string;
+  teacherName: string;
+  subjectClass: string;
+  title: string;
+  pagesCount: number;
+  copiesCount: number;
+  totalSheets: number;
+  paperSize: string;
+  colorOption: string;
+  printSide: string;
+  urgency: string;
+  targetDate: string;
+  status: string;
+  submittedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  rejectionReason?: string;
+  approvalNotes?: string;
+  printedAt?: string;
+  printedBy?: string;
+  completedAt?: string;
+  revisionNotes?: string;
+  revisionRequestedAt?: string;
+  revisionRequestedBy?: string;
+  revisionCount?: number;
+  resubmittedAt?: string;
+};
+
+type RevisionFormState = {
+  email: string;
+  subjectClass: string;
+  title: string;
+  pagesCount: number;
+  copiesCount: number;
+  paperSize: string;
+  colorOption: string;
+  printSide: string;
+  urgency: string;
+  targetDate: string;
+};
+
 export const StatusTracker: React.FC<StatusTrackerProps> = ({
   initialTrackingCode = '',
 }) => {
-  const [requests, setRequests] = useState<PhotocopyRequest[]>([]);
+  const [requests, setRequests] = useState<TrackerRequest[]>([]);
   const [selectedRequest, setSelectedRequest] =
-    useState<PhotocopyRequest | null>(null);
-  const [filter, setFilter] = useState<HistoryFilter>('SEMUA');
+    useState<TrackerRequest | null>(null);
+  const [revisionRequest, setRevisionRequest] =
+    useState<TrackerRequest | null>(null);
+
+  const [filter, setFilter] =
+    useState<HistoryFilter>('SEMUA');
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [copiedId, setCopiedId] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+
+  const [revisionForm, setRevisionForm] =
+    useState<RevisionFormState>({
+      email: '',
+      subjectClass: '',
+      title: '',
+      pagesCount: 1,
+      copiesCount: 1,
+      paperSize: 'A4',
+      colorOption: 'BW',
+      printSide: 'DOUBLE',
+      urgency: 'NORMAL',
+      targetDate: '',
+    });
+
+  const [replacementFile, setReplacementFile] =
+    useState<File | null>(null);
+  const [revisionSubmitting, setRevisionSubmitting] =
+    useState(false);
+
   const ITEMS_PER_PAGE = 12;
 
-  const mapHistoryRequest = (row: any): PhotocopyRequest => ({
+  const mapHistoryRequest = (row: any): TrackerRequest => ({
     id: row.id,
     teacherName: row.teacher_name,
     subjectClass: row.subject_class,
     title: row.title,
-
-    fileName: 'Dokumen bahan ajar',
-    fileSize: '',
-    fileType: '',
-
     pagesCount: row.pages_count,
     copiesCount: row.copies_count,
     totalSheets: row.total_sheets,
@@ -62,19 +126,23 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
     colorOption: row.color_option,
     printSide: row.print_side,
     urgency: row.urgency,
-
     targetDate: row.target_date,
     status: row.status,
-
     submittedAt: row.submitted_at,
     reviewedAt: row.reviewed_at || undefined,
     reviewedBy: row.reviewed_by || undefined,
     rejectionReason: row.rejection_reason || undefined,
     approvalNotes: row.approval_notes || undefined,
-
     printedAt: row.printed_at || undefined,
     printedBy: row.printed_by || undefined,
     completedAt: row.completed_at || undefined,
+    revisionNotes: row.revision_notes || undefined,
+    revisionRequestedAt:
+      row.revision_requested_at || undefined,
+    revisionRequestedBy:
+      row.revision_requested_by || undefined,
+    revisionCount: row.revision_count || 0,
+    resubmittedAt: row.resubmitted_at || undefined,
   });
 
   const fetchHistory = async () => {
@@ -88,7 +156,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
 
       if (error) throw error;
 
-      const mapped: PhotocopyRequest[] = (data || []).map(
+      const mapped: TrackerRequest[] = (data || []).map(
         mapHistoryRequest
       );
 
@@ -132,49 +200,43 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
   const formatTargetDate = (value?: string) => {
     if (!value) return '-';
 
-    return new Date(`${value}T00:00:00`).toLocaleDateString(
-      'id-ID',
-      {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      }
-    );
+    const date = new Date(`${value}T00:00:00`);
+
+    return date.toLocaleDateString('id-ID', {
+      dateStyle: 'medium',
+    });
   };
 
   const copyTrackingId = async (id: string) => {
     try {
       await navigator.clipboard.writeText(id);
       setCopiedId(id);
-
-      window.setTimeout(() => {
-        setCopiedId('');
-      }, 1800);
+      window.setTimeout(() => setCopiedId(''), 1800);
     } catch {
       setErrorMsg(
-        'Tracking ID tidak dapat disalin otomatis. Silakan salin secara manual.'
+        'Tracking ID tidak dapat disalin otomatis.'
       );
     }
   };
 
-  const escapeHtml = (value?: string | number) => {
-    return String(value ?? '-')
+  const escapeHtml = (value?: string | number) =>
+    String(value ?? '-')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
-  };
 
-  const printApprovalProof = (request: PhotocopyRequest) => {
-    const isApproved =
-      request.status === 'DISETUJUI' ||
-      request.status === 'SEDANG_DICETAK' ||
-      request.status === 'SELESAI';
+  const printApprovalProof = (request: TrackerRequest) => {
+    const isApproved = [
+      'DISETUJUI',
+      'SEDANG_DICETAK',
+      'SELESAI',
+    ].includes(request.status);
 
     if (!isApproved) {
       setErrorMsg(
-        'Bukti persetujuan hanya tersedia untuk pengajuan yang sudah disetujui Kepala Sekolah.'
+        'Bukti persetujuan hanya tersedia untuk pengajuan yang sudah disetujui.'
       );
       return;
     }
@@ -187,388 +249,87 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
 
     if (!printWindow) {
       setErrorMsg(
-        'Popup diblokir browser. Izinkan popup untuk mencetak bukti persetujuan.'
+        'Popup diblokir browser. Izinkan popup untuk mencetak bukti.'
       );
       return;
     }
-
-    const approvalDate = formatDate(request.reviewedAt);
-    const targetDate = formatTargetDate(request.targetDate);
-    const submittedDate = formatDate(request.submittedAt);
-    const verificationUrl = `${window.location.origin}/lacak-status`;
-
-    const colorLabel =
-      request.colorOption === 'COLOR'
-        ? 'Berwarna'
-        : 'Hitam Putih';
-
-    const sideLabel =
-      request.printSide === 'DOUBLE'
-        ? '2 Sisi / Bolak-balik'
-        : '1 Sisi';
-
-    const currentStatus =
-      request.status === 'SELESAI'
-        ? 'SELESAI / PERNAH DIFOTOKOPI'
-        : request.status === 'SEDANG_DICETAK'
-        ? 'SEDANG DIPROSES RESOURCE'
-        : 'DISETUJUI';
-
-    const fileName = `Bukti_Persetujuan_${request.id}`;
 
     printWindow.document.write(`
       <!doctype html>
       <html lang="id">
         <head>
           <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>${escapeHtml(fileName)}</title>
-
+          <title>Bukti Persetujuan ${escapeHtml(
+            request.id
+          )}</title>
           <style>
-            @page {
-              size: A4;
-              margin: 14mm;
-            }
-
-            * {
-              box-sizing: border-box;
-            }
-
-            body {
-              margin: 0;
-              font-family: Arial, Helvetica, sans-serif;
-              color: #0f172a;
-              background: #ffffff;
-              font-size: 12px;
-              line-height: 1.45;
-            }
-
-            .sheet {
-              width: 100%;
-            }
-
-            .header {
-              border-bottom: 3px solid #0f172a;
-              padding-bottom: 14px;
-              margin-bottom: 18px;
-            }
-
-            .eyebrow {
-              font-size: 10px;
-              font-weight: 700;
-              letter-spacing: .08em;
-              text-transform: uppercase;
-              color: #2563eb;
-              margin-bottom: 4px;
-            }
-
-            h1 {
-              font-size: 22px;
-              margin: 0;
-              line-height: 1.2;
-            }
-
-            .subtitle {
-              color: #64748b;
-              margin-top: 5px;
-              font-size: 11px;
-            }
-
-            .approval {
-              border: 2px solid #86efac;
-              background: #f0fdf4;
-              border-radius: 10px;
-              padding: 14px;
-              margin-bottom: 18px;
-            }
-
-            .approval-title {
-              color: #166534;
-              font-size: 14px;
-              font-weight: 800;
-              margin-bottom: 4px;
-            }
-
-            .approval-desc {
-              color: #15803d;
-              font-size: 11px;
-            }
-
-            .tracking {
-              background: #0f172a;
-              color: white;
-              border-radius: 10px;
-              padding: 13px 15px;
-              margin-bottom: 18px;
-            }
-
-            .tracking-label {
-              font-size: 9px;
-              color: #94a3b8;
-              text-transform: uppercase;
-              font-weight: 700;
-              letter-spacing: .08em;
-            }
-
-            .tracking-value {
-              font-size: 20px;
-              font-family: "Courier New", monospace;
-              font-weight: 800;
-              color: #60a5fa;
-              margin-top: 3px;
-            }
-
-            .section {
-              margin-bottom: 17px;
-            }
-
-            .section-title {
-              font-size: 10px;
-              text-transform: uppercase;
-              font-weight: 800;
-              letter-spacing: .08em;
-              color: #475569;
-              border-bottom: 1px solid #cbd5e1;
-              padding-bottom: 6px;
-              margin-bottom: 8px;
-            }
-
-            table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-
-            td {
-              padding: 7px 8px;
-              border-bottom: 1px solid #e2e8f0;
-              vertical-align: top;
-            }
-
-            td:first-child {
-              width: 34%;
-              color: #64748b;
-              font-weight: 700;
-            }
-
-            td:last-child {
-              font-weight: 600;
-              color: #0f172a;
-            }
-
-            .note {
-              padding: 10px 12px;
-              border: 1px solid #bbf7d0;
-              background: #f0fdf4;
-              border-radius: 8px;
-              color: #166534;
-              margin-top: 8px;
-            }
-
-            .verification {
-              margin-top: 20px;
-              padding-top: 12px;
-              border-top: 1px dashed #94a3b8;
-              color: #64748b;
-              font-size: 9.5px;
-            }
-
-            .verification strong {
-              color: #334155;
-            }
-
-            .footer {
-              margin-top: 14px;
-              display: flex;
-              justify-content: space-between;
-              gap: 20px;
-              font-size: 9px;
-              color: #94a3b8;
-            }
-
-            .status-pill {
-              display: inline-block;
-              border: 1px solid #86efac;
-              background: #dcfce7;
-              color: #166534;
-              font-size: 10px;
-              font-weight: 800;
-              border-radius: 999px;
-              padding: 4px 8px;
-              margin-top: 8px;
-            }
-
-            .no-print {
-              margin-bottom: 14px;
-              text-align: right;
-            }
-
-            .print-button {
-              border: 0;
-              background: #2563eb;
-              color: white;
-              border-radius: 8px;
-              padding: 9px 14px;
-              font-size: 11px;
-              font-weight: 700;
-              cursor: pointer;
-            }
-
-            @media print {
-              .no-print {
-                display: none !important;
-              }
-
-              body {
-                print-color-adjust: exact;
-                -webkit-print-color-adjust: exact;
-              }
-            }
+            @page { size: A4; margin: 16mm; }
+            body { font-family: Arial, sans-serif; color:#0f172a; font-size:12px; line-height:1.5; }
+            h1 { font-size:22px; margin:0 0 5px; }
+            .muted { color:#64748b; }
+            .ok { margin:18px 0; padding:14px; border:2px solid #86efac; background:#f0fdf4; border-radius:10px; color:#166534; }
+            .tracking { background:#0f172a; color:white; padding:14px; border-radius:10px; margin:18px 0; }
+            .tracking strong { display:block; color:#60a5fa; font-size:20px; font-family:monospace; }
+            table { width:100%; border-collapse:collapse; margin-top:12px; }
+            td { border-bottom:1px solid #e2e8f0; padding:8px 4px; vertical-align:top; }
+            td:first-child { width:36%; color:#64748b; }
+            .btn { margin-bottom:15px; background:#2563eb; color:white; border:0; border-radius:8px; padding:9px 14px; font-weight:bold; }
+            @media print { .no-print { display:none; } }
           </style>
         </head>
-
         <body>
-          <div class="sheet">
-            <div class="no-print">
-              <button class="print-button" onclick="window.print()">
-                Cetak / Simpan PDF
-              </button>
-            </div>
-
-            <div class="header">
-              <div class="eyebrow">E-Photocopy</div>
-              <h1>Bukti Persetujuan Pengajuan Fotokopi</h1>
-              <div class="subtitle">
-                Portal Persetujuan Digital Bahan Ajar Sekolah - Tahun Ajaran 2026/2027
-              </div>
-            </div>
-
-            <div class="approval">
-              <div class="approval-title">
-                ✓ DISETUJUI KEPALA SEKOLAH
-              </div>
-              <div class="approval-desc">
-                Dokumen ini merupakan bukti digital bahwa pengajuan fotokopi telah memperoleh persetujuan Kepala Sekolah.
-              </div>
-              <div class="status-pill">
-                STATUS SAAT INI: ${escapeHtml(currentStatus)}
-              </div>
-            </div>
-
-            <div class="tracking">
-              <div class="tracking-label">Tracking ID</div>
-              <div class="tracking-value">${escapeHtml(request.id)}</div>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Data Pengajuan</div>
-              <table>
-                <tr>
-                  <td>Nama Guru</td>
-                  <td>${escapeHtml(request.teacherName)}</td>
-                </tr>
-                <tr>
-                  <td>Kelas / Mata Pelajaran</td>
-                  <td>${escapeHtml(request.subjectClass)}</td>
-                </tr>
-                <tr>
-                  <td>Judul Bahan Ajar</td>
-                  <td>${escapeHtml(request.title)}</td>
-                </tr>
-                <tr>
-                  <td>Tanggal Pengajuan</td>
-                  <td>${escapeHtml(submittedDate)}</td>
-                </tr>
-                <tr>
-                  <td>Tanggal Diperlukan</td>
-                  <td>${escapeHtml(targetDate)}</td>
-                </tr>
-              </table>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Detail Fotokopi</div>
-              <table>
-                <tr>
-                  <td>Jumlah</td>
-                  <td>
-                    ${escapeHtml(request.pagesCount)} halaman ×
-                    ${escapeHtml(request.copiesCount)} salinan
-                  </td>
-                </tr>
-                <tr>
-                  <td>Total Kertas</td>
-                  <td>${escapeHtml(request.totalSheets)} lembar</td>
-                </tr>
-                <tr>
-                  <td>Ukuran Kertas</td>
-                  <td>${escapeHtml(request.paperSize)}</td>
-                </tr>
-                <tr>
-                  <td>Mode Warna</td>
-                  <td>${escapeHtml(colorLabel)}</td>
-                </tr>
-                <tr>
-                  <td>Sisi Cetak</td>
-                  <td>${escapeHtml(sideLabel)}</td>
-                </tr>
-              </table>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Persetujuan Kepala Sekolah</div>
-              <table>
-                <tr>
-                  <td>Keputusan</td>
-                  <td>DISETUJUI</td>
-                </tr>
-                <tr>
-                  <td>Disetujui Oleh</td>
-                  <td>${escapeHtml(
-                    request.reviewedBy || 'Kepala Sekolah'
-                  )}</td>
-                </tr>
-                <tr>
-                  <td>Tanggal Persetujuan</td>
-                  <td>${escapeHtml(approvalDate)}</td>
-                </tr>
-              </table>
-
-              ${
-                request.approvalNotes
-                  ? `
-                    <div class="note">
-                      <strong>Catatan Persetujuan:</strong><br />
-                      ${escapeHtml(request.approvalNotes)}
-                    </div>
-                  `
-                  : ''
-              }
-            </div>
-
-            <div class="verification">
-              <strong>Verifikasi:</strong>
-              Bukti ini dapat dicocokkan melalui halaman Lacak Status E-Photocopy
-              di ${escapeHtml(verificationUrl)} dengan Tracking ID
-              <strong>${escapeHtml(request.id)}</strong>.
-            </div>
-
-            <div class="footer">
-              <div>
-                Bukti dibuat dari sistem E-Photocopy.
-              </div>
-              <div>
-                Dicetak: ${escapeHtml(
-                  new Date().toLocaleString('id-ID')
-                )}
-              </div>
-            </div>
+          <div class="no-print">
+            <button class="btn" onclick="window.print()">Cetak / Simpan PDF</button>
           </div>
-
+          <div class="muted">E-Photocopy • Tahun Ajaran 2026/2027</div>
+          <h1>Bukti Persetujuan Pengajuan Fotokopi</h1>
+          <div class="ok">
+            <strong>✓ DISETUJUI KEPALA SEKOLAH</strong><br/>
+            Bukti digital persetujuan pengajuan bahan ajar.
+          </div>
+          <div class="tracking">
+            Tracking ID
+            <strong>${escapeHtml(request.id)}</strong>
+          </div>
+          <table>
+            <tr><td>Nama Guru</td><td>${escapeHtml(
+              request.teacherName
+            )}</td></tr>
+            <tr><td>Kelas / Mapel</td><td>${escapeHtml(
+              request.subjectClass
+            )}</td></tr>
+            <tr><td>Judul</td><td>${escapeHtml(
+              request.title
+            )}</td></tr>
+            <tr><td>Jumlah</td><td>${escapeHtml(
+              request.pagesCount
+            )} halaman × ${escapeHtml(
+      request.copiesCount
+    )} salinan</td></tr>
+            <tr><td>Total Kertas</td><td>${escapeHtml(
+              request.totalSheets
+            )} lembar</td></tr>
+            <tr><td>Target</td><td>${escapeHtml(
+              formatTargetDate(request.targetDate)
+            )}</td></tr>
+            <tr><td>Disetujui Oleh</td><td>${escapeHtml(
+              request.reviewedBy || 'Kepala Sekolah'
+            )}</td></tr>
+            <tr><td>Tanggal Persetujuan</td><td>${escapeHtml(
+              formatDate(request.reviewedAt)
+            )}</td></tr>
+          </table>
+          ${
+            request.approvalNotes
+              ? `<p><strong>Catatan:</strong> ${escapeHtml(
+                  request.approvalNotes
+                )}</p>`
+              : ''
+          }
+          <p class="muted">Verifikasi melalui halaman Lacak Status dengan Tracking ID di atas.</p>
           <script>
             window.addEventListener('load', function () {
-              setTimeout(function () {
-                window.print();
-              }, 300);
+              setTimeout(function () { window.print(); }, 300);
             });
           </script>
         </body>
@@ -578,7 +339,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
     printWindow.document.close();
   };
 
-  const getStatusStyle = (status: RequestStatus) => {
+  const getStatusStyle = (status: string) => {
     switch (status) {
       case 'DISETUJUI':
         return {
@@ -588,6 +349,16 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
           label: 'DISETUJUI KEPALA SEKOLAH',
           shortLabel: 'Disetujui',
           icon: <ShieldCheck className="w-4 h-4" />,
+        };
+
+      case 'PERLU_REVISI':
+        return {
+          className:
+            'bg-violet-100 text-violet-700 border-violet-200',
+          cardBorder: 'border-violet-200',
+          label: 'PERLU REVISI',
+          shortLabel: 'Perlu Revisi',
+          icon: <RotateCcw className="w-4 h-4" />,
         };
 
       case 'DITOLAK':
@@ -615,7 +386,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
           className:
             'bg-slate-200 text-slate-700 border-slate-300',
           cardBorder: 'border-slate-300',
-          label: 'SELESAI',
+          label: 'SELESAI / PERNAH DIFOTOKOPI',
           shortLabel: 'Selesai',
           icon: <CheckCircle2 className="w-4 h-4" />,
         };
@@ -635,37 +406,40 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
   const counts = useMemo(
     () => ({
       MENUNGGU: requests.filter(
-        (request) => request.status === 'MENUNGGU'
+        (r) => r.status === 'MENUNGGU'
+      ).length,
+      PERLU_REVISI: requests.filter(
+        (r) => r.status === 'PERLU_REVISI'
       ).length,
       DISETUJUI: requests.filter(
-        (request) => request.status === 'DISETUJUI'
+        (r) => r.status === 'DISETUJUI'
       ).length,
       SEDANG_DICETAK: requests.filter(
-        (request) => request.status === 'SEDANG_DICETAK'
+        (r) => r.status === 'SEDANG_DICETAK'
       ).length,
       SELESAI: requests.filter(
-        (request) => request.status === 'SELESAI'
+        (r) => r.status === 'SELESAI'
       ).length,
       DITOLAK: requests.filter(
-        (request) => request.status === 'DITOLAK'
+        (r) => r.status === 'DITOLAK'
       ).length,
     }),
     [requests]
   );
 
   const filteredRequests = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
+    const q = searchTerm.trim().toLowerCase();
 
     return requests.filter((request) => {
       const matchesStatus =
         filter === 'SEMUA' || request.status === filter;
 
       const matchesSearch =
-        !query ||
-        request.id.toLowerCase().includes(query) ||
-        request.teacherName.toLowerCase().includes(query) ||
-        request.subjectClass.toLowerCase().includes(query) ||
-        request.title.toLowerCase().includes(query);
+        !q ||
+        request.id.toLowerCase().includes(q) ||
+        request.teacherName.toLowerCase().includes(q) ||
+        request.subjectClass.toLowerCase().includes(q) ||
+        request.title.toLowerCase().includes(q);
 
       return matchesStatus && matchesSearch;
     });
@@ -682,23 +456,31 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
 
   const paginatedRequests = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredRequests.slice(start, start + ITEMS_PER_PAGE);
+    return filteredRequests.slice(
+      start,
+      start + ITEMS_PER_PAGE
+    );
   }, [filteredRequests, currentPage]);
 
   const filters: Array<{
     value: HistoryFilter;
     label: string;
-    count?: number;
+    count: number;
   }> = [
     {
       value: 'SEMUA',
-      label: 'Semua Riwayat',
+      label: 'Semua',
       count: requests.length,
     },
     {
       value: 'MENUNGGU',
       label: 'Menunggu',
       count: counts.MENUNGGU,
+    },
+    {
+      value: 'PERLU_REVISI',
+      label: 'Perlu Revisi',
+      count: counts.PERLU_REVISI,
     },
     {
       value: 'DISETUJUI',
@@ -722,6 +504,190 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
     },
   ];
 
+  const openRevisionEditor = (request: TrackerRequest) => {
+    setSelectedRequest(null);
+    setRevisionRequest(request);
+    setReplacementFile(null);
+    setErrorMsg('');
+
+    setRevisionForm({
+      email: '',
+      subjectClass: request.subjectClass,
+      title: request.title,
+      pagesCount: request.pagesCount,
+      copiesCount: request.copiesCount,
+      paperSize: request.paperSize,
+      colorOption: request.colorOption,
+      printSide: request.printSide,
+      urgency: request.urgency,
+      targetDate: request.targetDate,
+    });
+  };
+
+  const revisionSheets =
+    revisionForm.printSide === 'DOUBLE'
+      ? Math.ceil(revisionForm.pagesCount / 2) *
+        revisionForm.copiesCount
+      : revisionForm.pagesCount *
+        revisionForm.copiesCount;
+
+  const submitRevision = async (
+    event: React.FormEvent
+  ) => {
+    event.preventDefault();
+
+    if (!revisionRequest) return;
+
+    if (!revisionForm.email.trim()) {
+      setErrorMsg(
+        'Email guru wajib diisi untuk verifikasi pengajuan.'
+      );
+      return;
+    }
+
+    if (
+      !revisionForm.subjectClass.trim() ||
+      !revisionForm.title.trim() ||
+      revisionForm.pagesCount <= 0 ||
+      revisionForm.copiesCount <= 0
+    ) {
+      setErrorMsg(
+        'Lengkapi data revisi sebelum dikirim ulang.'
+      );
+      return;
+    }
+
+    setRevisionSubmitting(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    let uploadedPath: string | null = null;
+
+    try {
+      let fileName: string | null = null;
+      let fileSize: string | null = null;
+      let fileType: string | null = null;
+      let fileUrl: string | null = null;
+
+      if (replacementFile) {
+        if (
+          replacementFile.size >
+          20 * 1024 * 1024
+        ) {
+          throw new Error(
+            'Ukuran file maksimal 20 MB.'
+          );
+        }
+
+        let safeName = replacementFile.name
+          .replace(/\s+/g, '_')
+          .replace(/[^a-zA-Z0-9._-]/g, '');
+
+        if (!safeName) safeName = 'document';
+
+        uploadedPath = `${
+          revisionRequest.id
+        }/revision-${Date.now()}-${safeName}`;
+
+        const { error: uploadError } =
+          await supabase.storage
+            .from('photocopy-files')
+            .upload(
+              uploadedPath,
+              replacementFile,
+              {
+                cacheControl: '3600',
+                upsert: false,
+                contentType:
+                  replacementFile.type ||
+                  'application/octet-stream',
+              }
+            );
+
+        if (uploadError) throw uploadError;
+
+        fileName = replacementFile.name;
+        fileSize = `${(
+          replacementFile.size /
+          (1024 * 1024)
+        ).toFixed(1)} MB`;
+        fileType =
+          replacementFile.type ||
+          'application/octet-stream';
+        fileUrl = uploadedPath;
+      }
+
+      const { error } = await supabase.rpc(
+        'teacher_resubmit_revision',
+        {
+          p_request_id: revisionRequest.id,
+          p_teacher_email:
+            revisionForm.email.trim(),
+          p_subject_class:
+            revisionForm.subjectClass.trim(),
+          p_title: revisionForm.title.trim(),
+          p_pages_count:
+            revisionForm.pagesCount,
+          p_copies_count:
+            revisionForm.copiesCount,
+          p_total_sheets: revisionSheets,
+          p_paper_size:
+            revisionForm.paperSize,
+          p_color_option:
+            revisionForm.colorOption,
+          p_print_side:
+            revisionForm.printSide,
+          p_urgency: revisionForm.urgency,
+          p_target_date:
+            revisionForm.targetDate,
+          p_notes: null,
+          p_file_name: fileName,
+          p_file_size: fileSize,
+          p_file_type: fileType,
+          p_file_url: fileUrl,
+        }
+      );
+
+      if (error) throw error;
+
+      setSuccessMsg(
+        `${revisionRequest.id} berhasil diperbaiki dan dikirim ulang ke Kepala Sekolah.`
+      );
+
+      setRevisionRequest(null);
+      setReplacementFile(null);
+      await fetchHistory();
+      setFilter('MENUNGGU');
+    } catch (err: any) {
+      if (uploadedPath) {
+        await supabase.storage
+          .from('photocopy-files')
+          .remove([uploadedPath]);
+      }
+
+      console.error('Resubmit revision error:', err);
+
+      const raw = String(err?.message || '');
+
+      if (
+        raw.toLowerCase().includes(
+          'email guru tidak sesuai'
+        )
+      ) {
+        setErrorMsg(
+          'Email tidak sesuai dengan pengajuan ini. Gunakan email guru yang tercatat saat pengajuan dibuat.'
+        );
+      } else {
+        setErrorMsg(
+          raw ||
+            'Gagal mengirim ulang pengajuan.'
+        );
+      }
+    } finally {
+      setRevisionSubmitting(false);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="bg-slate-900 text-white rounded-xl p-6 sm:p-8 mb-6 border border-slate-800 shadow-sm">
@@ -737,10 +703,9 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
             </h2>
 
             <p className="text-sm text-slate-300 mt-2 max-w-3xl">
-              Semua pengajuan tetap tersimpan di sini. Guru dapat
-              melihat apakah pengajuan masih menunggu, sudah
-              disetujui Kepala Sekolah, sedang diproses Resource,
-              selesai, atau ditolak.
+              Semua pengajuan tersimpan sebagai riwayat. Jika
+              Kepala Sekolah meminta revisi, guru dapat
+              memperbaiki pengajuan dari halaman ini.
             </p>
           </div>
 
@@ -748,7 +713,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
             type="button"
             onClick={fetchHistory}
             disabled={loading}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold transition-colors disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold"
           >
             <RefreshCw
               className={`w-4 h-4 ${
@@ -760,45 +725,58 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
         </div>
       </div>
 
+      {successMsg && (
+        <div className="mb-5 bg-green-50 border border-green-200 text-green-800 rounded-xl p-4 text-sm flex items-center justify-between gap-3">
+          <span>{successMsg}</span>
+          <button
+            type="button"
+            onClick={() => setSuccessMsg('')}
+            className="font-bold underline"
+          >
+            Tutup
+          </button>
+        </div>
+      )}
+
       {errorMsg && (
-        <div className="mb-6 bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 text-sm flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 shrink-0 text-red-600" />
+        <div className="mb-5 bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 text-sm flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 shrink-0" />
           <span className="flex-1">{errorMsg}</span>
           <button
             type="button"
             onClick={() => setErrorMsg('')}
-            className="p-1 hover:bg-red-100 rounded"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
         <SummaryCard
           label="Menunggu"
           value={counts.MENUNGGU}
           className="bg-amber-50 border-amber-200 text-amber-800"
         />
-
+        <SummaryCard
+          label="Perlu Revisi"
+          value={counts.PERLU_REVISI}
+          className="bg-violet-50 border-violet-200 text-violet-800"
+        />
         <SummaryCard
           label="Disetujui"
           value={counts.DISETUJUI}
           className="bg-green-50 border-green-200 text-green-800"
         />
-
         <SummaryCard
           label="Diproses"
           value={counts.SEDANG_DICETAK}
           className="bg-blue-50 border-blue-200 text-blue-800"
         />
-
         <SummaryCard
           label="Selesai"
           value={counts.SELESAI}
           className="bg-slate-50 border-slate-200 text-slate-800"
         />
-
         <SummaryCard
           label="Ditolak"
           value={counts.DITOLAK}
@@ -807,38 +785,25 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-4 mb-4 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Cari Tracking ID, nama guru, kelas/mapel, atau judul bahan..."
-              className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-            />
-
-            {searchTerm && (
-              <button
-                type="button"
-                onClick={() => setSearchTerm('')}
-                title="Hapus pencarian"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) =>
+              setSearchTerm(e.target.value)
+            }
+            placeholder="Cari Tracking ID, nama guru, kelas/mapel, atau judul..."
+            className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-400"
+          />
           {searchTerm && (
-            <div className="text-xs text-slate-500 whitespace-nowrap">
-              Ditemukan{' '}
-              <strong className="text-slate-800">
-                {filteredRequests.length}
-              </strong>{' '}
-              pengajuan
-            </div>
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2"
+            >
+              <X className="w-4 h-4 text-slate-400" />
+            </button>
           )}
         </div>
       </div>
@@ -850,9 +815,9 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
               key={item.value}
               type="button"
               onClick={() => setFilter(item.value)}
-              className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition-all ${
+              className={`px-3.5 py-2 rounded-lg text-xs font-bold border ${
                 filter === item.value
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                  ? 'bg-blue-600 text-white border-blue-600'
                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -860,11 +825,11 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
               <span
                 className={`ml-2 px-1.5 py-0.5 rounded text-[10px] ${
                   filter === item.value
-                    ? 'bg-white/20 text-white'
-                    : 'bg-slate-100 text-slate-600'
+                    ? 'bg-white/20'
+                    : 'bg-slate-100'
                 }`}
               >
-                {item.count ?? 0}
+                {item.count}
               </span>
             </button>
           ))}
@@ -875,34 +840,27 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
           <RefreshCw className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-3" />
           <p className="text-sm font-semibold text-slate-600">
-            Memuat riwayat pengajuan...
+            Memuat riwayat...
           </p>
         </div>
       ) : filteredRequests.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
           <History className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <h3 className="font-bold text-slate-900">
+          <p className="font-bold text-slate-900">
             Belum Ada Pengajuan
-          </h3>
-          <p className="text-sm text-slate-500 mt-1">
-            Belum ada pengajuan pada status ini.
           </p>
         </div>
       ) : (
         <div className="space-y-2">
           {paginatedRequests.map((request) => {
             const style = getStatusStyle(request.status);
-            const isApprovedHistory =
-              request.status === 'DISETUJUI' ||
-              request.status === 'SEDANG_DICETAK' ||
-              request.status === 'SELESAI';
 
             return (
               <div
                 key={request.id}
-                className={`bg-white border ${style.cardBorder} rounded-xl px-4 py-3 shadow-sm hover:shadow-md transition-all`}
+                className={`bg-white border ${style.cardBorder} rounded-xl px-4 py-3 shadow-sm`}
               >
-                <div className="grid grid-cols-1 md:grid-cols-[170px_minmax(0,1fr)_auto] md:items-center gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-[165px_minmax(0,1fr)_auto] md:items-center gap-3">
                   <div>
                     <span
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1 border rounded-full text-[10px] font-bold ${style.className}`}
@@ -910,35 +868,19 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                       {style.icon}
                       {style.shortLabel}
                     </span>
-
-                    {request.urgency === 'TINGGI' && (
-                      <span className="ml-1.5 px-2 py-1 bg-red-100 text-red-700 border border-red-200 rounded-full text-[9px] font-bold">
-                        URGENT
-                      </span>
-                    )}
                   </div>
 
                   <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <h3 className="font-bold text-slate-900 text-sm truncate max-w-full">
-                        {request.title}
-                      </h3>
-
-                      {isApprovedHistory && request.reviewedBy && (
-                        <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-green-700">
-                          <ShieldCheck className="w-3 h-3" />
-                          Disetujui Kepsek
-                        </span>
-                      )}
-                    </div>
+                    <h3 className="font-bold text-slate-900 text-sm truncate">
+                      {request.title}
+                    </h3>
 
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[10px] text-slate-500">
                       <span>
                         <strong className="text-slate-700">
                           {request.teacherName}
-                        </strong>
-                        {' • '}
-                        {request.subjectClass}
+                        </strong>{' '}
+                        • {request.subjectClass}
                       </span>
 
                       <span className="font-mono text-blue-700 font-semibold">
@@ -946,8 +888,6 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                       </span>
 
                       <span>
-                        {request.pagesCount} hal × {request.copiesCount} salinan
-                        {' • '}
                         {request.totalSheets} lembar
                       </span>
 
@@ -955,67 +895,78 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                         {formatDate(request.submittedAt)}
                       </span>
                     </div>
+
+                    {request.status === 'PERLU_REVISI' &&
+                      request.revisionNotes && (
+                        <div className="mt-2 text-[10px] text-violet-800">
+                          <strong>Revisi:</strong>{' '}
+                          {request.revisionNotes}
+                        </div>
+                      )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setSelectedRequest(request)}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold transition-colors shrink-0"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    Detail
-                  </button>
+                  <div className="flex gap-2">
+                    {request.status ===
+                      'PERLU_REVISI' && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openRevisionEditor(request)
+                        }
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-[11px] font-bold"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Perbaiki
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedRequest(request)
+                      }
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      Detail
+                    </button>
+                  </div>
                 </div>
               </div>
             );
           })}
 
           {filteredRequests.length > ITEMS_PER_PAGE && (
-            <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+            <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 mt-4 flex items-center justify-between gap-3">
               <div className="text-xs text-slate-500">
-                Menampilkan{' '}
-                <strong className="text-slate-800">
-                  {(currentPage - 1) * ITEMS_PER_PAGE + 1}
-                </strong>
-                {'–'}
-                <strong className="text-slate-800">
-                  {Math.min(
-                    currentPage * ITEMS_PER_PAGE,
-                    filteredRequests.length
-                  )}
-                </strong>{' '}
-                dari{' '}
-                <strong className="text-slate-800">
-                  {filteredRequests.length}
-                </strong>{' '}
-                pengajuan
+                Halaman{' '}
+                <strong>{currentPage}</strong> dari{' '}
+                <strong>{totalPages}</strong>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() =>
-                    setCurrentPage((page) => Math.max(1, page - 1))
+                    setCurrentPage((p) =>
+                      Math.max(1, p - 1)
+                    )
                   }
                   disabled={currentPage === 1}
-                  className="px-3 py-2 text-xs font-bold border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="px-3 py-2 text-xs font-bold border rounded-lg disabled:opacity-40"
                 >
                   Sebelumnya
                 </button>
 
-                <span className="px-3 py-2 text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg">
-                  {currentPage} / {totalPages}
-                </span>
-
                 <button
                   type="button"
                   onClick={() =>
-                    setCurrentPage((page) =>
-                      Math.min(totalPages, page + 1)
+                    setCurrentPage((p) =>
+                      Math.min(totalPages, p + 1)
                     )
                   }
                   disabled={currentPage === totalPages}
-                  className="px-3 py-2 text-xs font-bold border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="px-3 py-2 text-xs font-bold border rounded-lg disabled:opacity-40"
                 >
                   Berikutnya
                 </button>
@@ -1026,35 +977,30 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
       )}
 
       {selectedRequest && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white max-w-2xl w-full rounded-xl shadow-2xl border border-slate-200 my-8">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white max-w-2xl w-full rounded-2xl shadow-2xl border border-slate-200 my-8">
             <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">
-                  Detail & Bukti Status
-                </span>
-
-                <h3 className="text-xl font-bold text-slate-900 mt-1">
+                <h3 className="text-xl font-bold text-slate-900">
                   {selectedRequest.title}
                 </h3>
-
                 <p className="text-xs text-slate-500 mt-1">
-                  {selectedRequest.teacherName}
-                  {' • '}
+                  {selectedRequest.teacherName} •{' '}
                   {selectedRequest.subjectClass}
                 </p>
               </div>
 
               <button
                 type="button"
-                onClick={() => setSelectedRequest(null)}
-                className="p-1.5 hover:bg-slate-100 rounded-lg"
+                onClick={() =>
+                  setSelectedRequest(null)
+                }
               >
-                <X className="w-5 h-5 text-slate-500" />
+                <X className="w-5 h-5 text-slate-400" />
               </button>
             </div>
 
-            <div className="p-6 space-y-5">
+            <div className="p-6 space-y-4">
               {(() => {
                 const style = getStatusStyle(
                   selectedRequest.status
@@ -1062,15 +1008,13 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
 
                 return (
                   <div
-                    className={`flex items-center gap-3 p-4 rounded-xl border ${style.className}`}
+                    className={`p-4 rounded-xl border flex items-center gap-3 ${style.className}`}
                   >
                     {style.icon}
-
                     <div>
-                      <div className="text-[10px] font-bold uppercase">
+                      <div className="text-[10px] uppercase font-bold">
                         Status Saat Ini
                       </div>
-
                       <div className="text-sm font-bold">
                         {style.label}
                       </div>
@@ -1079,115 +1023,119 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                 );
               })()}
 
-              <div className="bg-slate-900 text-white rounded-xl p-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[10px] uppercase text-slate-400 font-bold">
-                      Tracking ID
-                    </div>
-
-                    <div className="font-mono text-xl text-blue-400 font-bold mt-1">
-                      {selectedRequest.id}
-                    </div>
+              <div className="bg-slate-900 text-white rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="text-[10px] uppercase text-slate-400 font-bold">
+                    Tracking ID
                   </div>
-
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        copyTrackingId(selectedRequest.id)
-                      }
-                      className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold"
-                    >
-                      <Copy className="w-4 h-4" />
-                      {copiedId === selectedRequest.id
-                        ? 'Tersalin'
-                        : 'Salin Tracking ID'}
-                    </button>
-
-                    {(selectedRequest.status === 'DISETUJUI' ||
-                      selectedRequest.status === 'SEDANG_DICETAK' ||
-                      selectedRequest.status === 'SELESAI') && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          printApprovalProof(selectedRequest)
-                        }
-                        className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 border border-green-500 rounded-lg text-xs font-bold text-white"
-                      >
-                        <Printer className="w-4 h-4" />
-                        Cetak / Simpan PDF
-                      </button>
-                    )}
+                  <div className="font-mono text-xl text-blue-400 font-bold">
+                    {selectedRequest.id}
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyTrackingId(selectedRequest.id)
+                  }
+                  className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold flex items-center gap-2"
+                >
+                  <Copy className="w-4 h-4" />
+                  {copiedId === selectedRequest.id
+                    ? 'Tersalin'
+                    : 'Salin ID'}
+                </button>
               </div>
 
-              {(selectedRequest.status === 'DISETUJUI' ||
-                selectedRequest.status === 'SEDANG_DICETAK' ||
-                selectedRequest.status === 'SELESAI') && (
-                <div className="bg-green-50 border-2 border-green-200 rounded-xl p-5">
-                  <div className="flex items-center gap-2 text-green-800 mb-3">
-                    <ShieldCheck className="w-5 h-5" />
-
-                    <div>
-                      <div className="text-xs font-extrabold uppercase tracking-wide">
-                        Bukti Persetujuan Kepala Sekolah
-                      </div>
-                      <div className="text-[11px] text-green-700">
-                        Dapat ditunjukkan kepada Tim Resource.
-                      </div>
-                    </div>
+              {selectedRequest.status ===
+                'PERLU_REVISI' && (
+                <div className="bg-violet-50 border-2 border-violet-200 rounded-xl p-5">
+                  <div className="font-bold text-violet-900 flex items-center gap-2">
+                    <RotateCcw className="w-5 h-5" />
+                    Perlu Diperbaiki
                   </div>
 
-                  <div className="grid sm:grid-cols-2 gap-3 text-xs">
-                    <ProofItem
-                      label="Status Persetujuan"
-                      value="DISETUJUI"
-                    />
+                  <p className="text-sm text-violet-900 mt-3">
+                    {selectedRequest.revisionNotes ||
+                      'Silakan perbaiki pengajuan sesuai arahan Kepala Sekolah.'}
+                  </p>
 
-                    <ProofItem
-                      label="Tracking ID"
-                      value={selectedRequest.id}
-                    />
-
-                    <ProofItem
-                      label="Disetujui Oleh"
-                      value={
-                        selectedRequest.reviewedBy ||
-                        'Kepala Sekolah'
-                      }
-                    />
-
-                    <ProofItem
-                      label="Tanggal Persetujuan"
-                      value={formatDate(
-                        selectedRequest.reviewedAt
-                      )}
-                    />
-                  </div>
-
-                  {selectedRequest.approvalNotes && (
-                    <div className="mt-3 bg-white/70 border border-green-200 rounded-lg p-3">
-                      <div className="text-[10px] font-bold uppercase text-green-700">
-                        Catatan Persetujuan
-                      </div>
-                      <div className="text-xs text-green-900 mt-1">
-                        {selectedRequest.approvalNotes}
-                      </div>
-                    </div>
+                  {selectedRequest.revisionRequestedBy && (
+                    <p className="text-[11px] text-violet-700 mt-2">
+                      Diminta oleh:{' '}
+                      <strong>
+                        {
+                          selectedRequest.revisionRequestedBy
+                        }
+                      </strong>
+                      {selectedRequest.revisionRequestedAt
+                        ? ` • ${formatDate(
+                            selectedRequest.revisionRequestedAt
+                          )}`
+                        : ''}
+                    </p>
                   )}
 
                   <button
                     type="button"
                     onClick={() =>
-                      printApprovalProof(selectedRequest)
+                      openRevisionEditor(
+                        selectedRequest
+                      )
                     }
-                    className="mt-4 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-green-700 hover:bg-green-800 text-white rounded-lg text-xs font-bold"
+                    className="w-full mt-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-bold"
+                  >
+                    Perbaiki Pengajuan
+                  </button>
+                </div>
+              )}
+
+              {[
+                'DISETUJUI',
+                'SEDANG_DICETAK',
+                'SELESAI',
+              ].includes(selectedRequest.status) && (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-5">
+                  <div className="font-bold text-green-800 flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5" />
+                    Disetujui Kepala Sekolah
+                  </div>
+
+                  <p className="text-xs text-green-700 mt-2">
+                    Oleh:{' '}
+                    <strong>
+                      {selectedRequest.reviewedBy ||
+                        'Kepala Sekolah'}
+                    </strong>{' '}
+                    •{' '}
+                    {formatDate(
+                      selectedRequest.reviewedAt
+                    )}
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      printApprovalProof(
+                        selectedRequest
+                      )
+                    }
+                    className="mt-4 w-full py-2.5 bg-green-700 hover:bg-green-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2"
                   >
                     <Printer className="w-4 h-4" />
-                    Cetak Bukti Persetujuan / Simpan PDF
+                    Cetak Bukti / Simpan PDF
                   </button>
+                </div>
+              )}
+
+              {selectedRequest.status ===
+                'DITOLAK' && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-900">
+                  <strong>Alasan Penolakan</strong>
+                  <p className="mt-1">
+                    {selectedRequest.rejectionReason ||
+                      'Tidak ada keterangan tambahan.'}
+                  </p>
                 </div>
               )}
 
@@ -1197,13 +1145,11 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                   label="Jumlah Cetak"
                   value={`${selectedRequest.pagesCount} halaman × ${selectedRequest.copiesCount} salinan`}
                 />
-
                 <DetailItem
                   icon={<Calculator className="w-4 h-4" />}
                   label="Total Kertas"
                   value={`${selectedRequest.totalSheets} lembar`}
                 />
-
                 <DetailItem
                   icon={<Calendar className="w-4 h-4" />}
                   label="Tanggal Diperlukan"
@@ -1211,94 +1157,293 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                     selectedRequest.targetDate
                   )}
                 />
-
                 <DetailItem
                   icon={<FileText className="w-4 h-4" />}
                   label="Spesifikasi"
                   value={`${selectedRequest.paperSize} • ${
-                    selectedRequest.colorOption === 'COLOR'
+                    selectedRequest.colorOption ===
+                    'COLOR'
                       ? 'Berwarna'
                       : 'Hitam Putih'
                   } • ${
-                    selectedRequest.printSide === 'DOUBLE'
+                    selectedRequest.printSide ===
+                    'DOUBLE'
                       ? '2 Sisi'
                       : '1 Sisi'
                   }`}
                 />
               </div>
 
-              {selectedRequest.status === 'SEDANG_DICETAK' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-900">
-                  <div className="font-bold flex items-center gap-2">
-                    <Printer className="w-4 h-4" />
-                    Sedang Diproses Resource
-                  </div>
-
-                  {selectedRequest.printedBy && (
-                    <p className="mt-1">
-                      Diproses oleh:{' '}
-                      <strong>
-                        {selectedRequest.printedBy}
-                      </strong>
-                    </p>
-                  )}
-
-                  {selectedRequest.printedAt && (
-                    <p className="mt-1">
-                      Mulai proses:{' '}
-                      {formatDate(selectedRequest.printedAt)}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {selectedRequest.status === 'SELESAI' && (
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-800">
-                  <div className="font-bold flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green-600" />
-                    Fotokopi Selesai
-                  </div>
-
-                  {selectedRequest.completedAt && (
-                    <p className="mt-1">
-                      Selesai pada:{' '}
-                      {formatDate(selectedRequest.completedAt)}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {selectedRequest.status === 'DITOLAK' && (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-xs text-red-900">
-                  <div className="font-bold mb-1">
-                    Pengajuan Ditolak
-                  </div>
-
-                  {selectedRequest.reviewedBy && (
-                    <p className="mb-1">
-                      Keputusan oleh:{' '}
-                      <strong>
-                        {selectedRequest.reviewedBy}
-                      </strong>
-                    </p>
-                  )}
-
-                  <p>
-                    {selectedRequest.rejectionReason ||
-                      'Tidak ada keterangan tambahan.'}
-                  </p>
-                </div>
-              )}
-
               <button
                 type="button"
-                onClick={() => setSelectedRequest(null)}
-                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg text-xs"
+                onClick={() =>
+                  setSelectedRequest(null)
+                }
+                className="w-full py-2.5 bg-slate-900 text-white rounded-lg text-xs font-bold"
               >
                 Tutup
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {revisionRequest && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/75 flex items-center justify-center p-4 overflow-y-auto">
+          <form
+            onSubmit={submitRevision}
+            className="bg-white max-w-2xl w-full rounded-2xl shadow-2xl border border-slate-200 my-8"
+          >
+            <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
+              <div>
+                <div className="text-[10px] font-bold text-violet-700 uppercase">
+                  Perbaiki & Kirim Ulang
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mt-1">
+                  {revisionRequest.title}
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Tracking ID tetap:{' '}
+                  <strong className="font-mono text-blue-700">
+                    {revisionRequest.id}
+                  </strong>
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setRevisionRequest(null)
+                }
+              >
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
+                <div className="text-xs font-bold text-violet-800">
+                  Catatan Kepala Sekolah
+                </div>
+                <div className="text-sm text-violet-900 mt-1">
+                  {revisionRequest.revisionNotes ||
+                    '-'}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Email Guru untuk Verifikasi *
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={revisionForm.email}
+                  onChange={(e) =>
+                    setRevisionForm((prev) => ({
+                      ...prev,
+                      email: e.target.value,
+                    }))
+                  }
+                  placeholder="nama@lazuardi.sch.id"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Email digunakan untuk memastikan pengajuan
+                  hanya diperbaiki oleh guru yang bersangkutan.
+                </p>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Field
+                  label="Kelas / Mata Pelajaran"
+                  value={revisionForm.subjectClass}
+                  onChange={(value) =>
+                    setRevisionForm((prev) => ({
+                      ...prev,
+                      subjectClass: value,
+                    }))
+                  }
+                />
+                <Field
+                  label="Judul Bahan Ajar"
+                  value={revisionForm.title}
+                  onChange={(value) =>
+                    setRevisionForm((prev) => ({
+                      ...prev,
+                      title: value,
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <NumberField
+                  label="Halaman"
+                  value={revisionForm.pagesCount}
+                  onChange={(value) =>
+                    setRevisionForm((prev) => ({
+                      ...prev,
+                      pagesCount: value,
+                    }))
+                  }
+                />
+                <NumberField
+                  label="Salinan"
+                  value={revisionForm.copiesCount}
+                  onChange={(value) =>
+                    setRevisionForm((prev) => ({
+                      ...prev,
+                      copiesCount: value,
+                    }))
+                  }
+                />
+
+                <SelectField
+                  label="Kertas"
+                  value={revisionForm.paperSize}
+                  options={[
+                    ['A4', 'A4'],
+                    ['F4', 'F4'],
+                    ['A3', 'A3'],
+                  ]}
+                  onChange={(value) =>
+                    setRevisionForm((prev) => ({
+                      ...prev,
+                      paperSize: value,
+                    }))
+                  }
+                />
+
+                <SelectField
+                  label="Warna"
+                  value={revisionForm.colorOption}
+                  options={[
+                    ['BW', 'Hitam Putih'],
+                    ['COLOR', 'Berwarna'],
+                  ]}
+                  onChange={(value) =>
+                    setRevisionForm((prev) => ({
+                      ...prev,
+                      colorOption: value,
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="grid sm:grid-cols-3 gap-3">
+                <SelectField
+                  label="Sisi Cetak"
+                  value={revisionForm.printSide}
+                  options={[
+                    ['SINGLE', '1 Sisi'],
+                    ['DOUBLE', '2 Sisi'],
+                  ]}
+                  onChange={(value) =>
+                    setRevisionForm((prev) => ({
+                      ...prev,
+                      printSide: value,
+                    }))
+                  }
+                />
+
+                <SelectField
+                  label="Prioritas"
+                  value={revisionForm.urgency}
+                  options={[
+                    ['NORMAL', 'Normal'],
+                    ['TINGGI', 'Tinggi'],
+                  ]}
+                  onChange={(value) =>
+                    setRevisionForm((prev) => ({
+                      ...prev,
+                      urgency: value,
+                    }))
+                  }
+                />
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Tanggal Diperlukan
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={revisionForm.targetDate}
+                    onChange={(e) =>
+                      setRevisionForm((prev) => ({
+                        ...prev,
+                        targetDate: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-slate-900 text-white rounded-xl p-4">
+                <div className="text-[10px] text-slate-400 uppercase font-bold">
+                  Perkiraan Kertas Setelah Revisi
+                </div>
+                <div className="text-2xl font-bold text-blue-400 mt-1">
+                  {revisionSheets} lembar
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Ganti File Dokumen (Opsional)
+                </label>
+
+                <label className="flex items-center gap-3 p-4 border border-dashed border-slate-300 rounded-xl cursor-pointer hover:bg-slate-50">
+                  <Upload className="w-5 h-5 text-blue-600" />
+                  <div className="flex-1">
+                    <div className="text-xs font-bold text-slate-800">
+                      {replacementFile
+                        ? replacementFile.name
+                        : 'Pilih file baru bila dokumen perlu diganti'}
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      Maksimal 20 MB. Jika tidak memilih file,
+                      dokumen lama tetap digunakan.
+                    </div>
+                  </div>
+                  <input
+                    type="file"
+                    className="hidden"
+                    onChange={(e) =>
+                      setReplacementFile(
+                        e.target.files?.[0] ||
+                          null
+                      )
+                    }
+                  />
+                </label>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setRevisionRequest(null)
+                  }
+                  className="flex-1 py-3 border border-slate-200 rounded-lg text-xs font-bold text-slate-600"
+                >
+                  Batal
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={revisionSubmitting}
+                  className="flex-[2] py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
+                >
+                  {revisionSubmitting
+                    ? 'Mengirim Ulang...'
+                    : 'Kirim Ulang ke Kepala Sekolah'}
+                </button>
+              </div>
+            </div>
+          </form>
         </div>
       )}
     </div>
@@ -1316,7 +1461,6 @@ const SummaryCard: React.FC<{
     <div className="text-[10px] uppercase tracking-wide font-bold">
       {label}
     </div>
-
     <div className="text-2xl font-extrabold mt-1">
       {value}
     </div>
@@ -1332,28 +1476,80 @@ const DetailItem: React.FC<{
     <div className="text-blue-600 mb-2">
       {icon}
     </div>
-
-    <div className="text-[10px] text-slate-500">
+    <div className="text-[10px] uppercase font-bold text-slate-400">
       {label}
     </div>
-
-    <div className="text-xs font-bold text-slate-900 mt-0.5">
+    <div className="text-xs font-bold text-slate-800 mt-1">
       {value}
     </div>
   </div>
 );
 
-const ProofItem: React.FC<{
+const Field: React.FC<{
   label: string;
   value: string;
-}> = ({ label, value }) => (
-  <div className="bg-white/70 border border-green-200 rounded-lg p-3">
-    <div className="text-[10px] font-bold uppercase text-green-700">
+  onChange: (value: string) => void;
+}> = ({ label, value, onChange }) => (
+  <div>
+    <label className="block text-xs font-bold text-slate-700 mb-1.5">
       {label}
-    </div>
+    </label>
+    <input
+      required
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm"
+    />
+  </div>
+);
 
-    <div className="text-xs font-bold text-green-950 mt-1 break-words">
-      {value}
-    </div>
+const NumberField: React.FC<{
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}> = ({ label, value, onChange }) => (
+  <div>
+    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+      {label}
+    </label>
+    <input
+      type="number"
+      min={1}
+      required
+      value={value}
+      onChange={(e) =>
+        onChange(
+          Math.max(1, Number(e.target.value) || 1)
+        )
+      }
+      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm"
+    />
+  </div>
+);
+
+const SelectField: React.FC<{
+  label: string;
+  value: string;
+  options: Array<[string, string]>;
+  onChange: (value: string) => void;
+}> = ({ label, value, options, onChange }) => (
+  <div>
+    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+      {label}
+    </label>
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white"
+    >
+      {options.map(([optionValue, optionLabel]) => (
+        <option
+          key={optionValue}
+          value={optionValue}
+        >
+          {optionLabel}
+        </option>
+      ))}
+    </select>
   </div>
 );
