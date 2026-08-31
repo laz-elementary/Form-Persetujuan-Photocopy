@@ -8,7 +8,6 @@ import {
   Search,
   RefreshCw,
   FileText,
-  Eye,
   ExternalLink,
   AlertCircle,
   X,
@@ -16,30 +15,50 @@ import {
   Play,
   History,
   ShieldCheck,
+  CalendarDays,
+  CalendarClock,
+  CalendarRange,
+  Clock3,
+  Eye,
 } from 'lucide-react';
 
-type ResourceFilter =
+type ResourceRequest = Omit<PhotocopyRequest, 'status'> & {
+  status: string;
+};
+
+type QueueView =
+  | 'TODAY'
+  | 'TOMORROW'
+  | 'UPCOMING'
+  | 'HISTORY'
+  | 'REJECTED'
+  | 'ALL';
+
+type SpecFilter =
   | 'ALL'
-  | 'DISETUJUI'
-  | 'SEDANG_DICETAK'
-  | 'SELESAI'
-  | 'DITOLAK';
+  | 'A4'
+  | 'F4'
+  | 'A3'
+  | 'BW'
+  | 'COLOR'
+  | 'SINGLE'
+  | 'DOUBLE';
 
 export const AdminResource: React.FC = () => {
-  const [requests, setRequests] = useState<PhotocopyRequest[]>([]);
+  const [requests, setRequests] = useState<ResourceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [selectedStatus, setSelectedStatus] =
-    useState<ResourceFilter>('ALL');
+  const [queueView, setQueueView] = useState<QueueView>('TODAY');
+  const [specFilter, setSpecFilter] = useState<SpecFilter>('ALL');
   const [selectedRequest, setSelectedRequest] =
-    useState<PhotocopyRequest | null>(null);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [openingFile, setOpeningFile] = useState(false);
-  const [processingId, setProcessingId] =
-    useState<string | null>(null);
-  const [msg, setMsg] = useState('');
+    useState<ResourceRequest | null>(null);
 
-  const mapRequest = (row: any): PhotocopyRequest => ({
+  const [errorMsg, setErrorMsg] = useState('');
+  const [msg, setMsg] = useState('');
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+
+  const mapRequest = (row: any): ResourceRequest => ({
     id: row.id,
     teacherName: row.teacher_name,
     teacherNip: row.teacher_nip || undefined,
@@ -87,7 +106,7 @@ export const AdminResource: React.FC = () => {
       console.error('Resource load error:', err);
       setErrorMsg(
         err?.message ||
-          'Gagal memuat data pengajuan untuk tim Resource.'
+          'Gagal memuat antrean fotokopi untuk Resource.'
       );
     } finally {
       setLoading(false);
@@ -98,59 +117,163 @@ export const AdminResource: React.FC = () => {
     fetchRequests();
   }, []);
 
-  const approvedCount = requests.filter(
-    (r) => r.status === 'DISETUJUI'
+  // =====================================================
+  // DATE HELPERS - ASIA/JAKARTA
+  // =====================================================
+
+  const dateKeyInJakarta = (date: Date) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+
+  const todayKey = dateKeyInJakarta(new Date());
+  const tomorrowKey = dateKeyInJakarta(
+    new Date(Date.now() + 24 * 60 * 60 * 1000)
+  );
+
+  const isActivePrintJob = (request: ResourceRequest) =>
+    request.status === 'DISETUJUI' ||
+    request.status === 'SEDANG_DICETAK';
+
+  const isOverdue = (request: ResourceRequest) =>
+    isActivePrintJob(request) &&
+    !!request.targetDate &&
+    request.targetDate < todayKey;
+
+  const isTodayJob = (request: ResourceRequest) =>
+    isActivePrintJob(request) &&
+    !!request.targetDate &&
+    request.targetDate <= todayKey;
+
+  const isTomorrowJob = (request: ResourceRequest) =>
+    isActivePrintJob(request) &&
+    request.targetDate === tomorrowKey;
+
+  const isUpcomingJob = (request: ResourceRequest) =>
+    isActivePrintJob(request) &&
+    !!request.targetDate &&
+    request.targetDate > tomorrowKey;
+
+  // =====================================================
+  // COUNTS
+  // =====================================================
+
+  const todayCount = requests.filter(isTodayJob).length;
+  const tomorrowCount = requests.filter(isTomorrowJob).length;
+  const upcomingCount = requests.filter(isUpcomingJob).length;
+  const historyCount = requests.filter(
+    (r) => r.status === 'SELESAI'
   ).length;
-
-  const printingCount = requests.filter(
-  (r) => r.status === 'SEDANG_DICETAK'
-).length;
-
-const completedCount = requests.filter(
-  (r) => r.status === 'SELESAI'
-).length;
-
   const rejectedCount = requests.filter(
     (r) => r.status === 'DITOLAK'
   ).length;
 
-  const approvedSheets = requests
-  .filter(
-    (r) =>
-      r.status === 'DISETUJUI' ||
-      r.status === 'SEDANG_DICETAK'
-  )
-  .reduce(
-    (total, r) => total + (r.totalSheets || 0),
-    0
-  );
+  const printingCount = requests.filter(
+    (r) => r.status === 'SEDANG_DICETAK'
+  ).length;
+
+  const queueSheets = requests
+    .filter(isActivePrintJob)
+    .reduce(
+      (total, request) => total + (request.totalSheets || 0),
+      0
+    );
+
+  // =====================================================
+  // FILTER & SORT
+  // =====================================================
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
 
-    return requests.filter((r) => {
-      const matchesStatus =
-        selectedStatus === 'ALL' || r.status === selectedStatus;
+    const result = requests.filter((request) => {
+      let matchesView = true;
+
+      if (queueView === 'TODAY') {
+        matchesView = isTodayJob(request);
+      } else if (queueView === 'TOMORROW') {
+        matchesView = isTomorrowJob(request);
+      } else if (queueView === 'UPCOMING') {
+        matchesView = isUpcomingJob(request);
+      } else if (queueView === 'HISTORY') {
+        matchesView = request.status === 'SELESAI';
+      } else if (queueView === 'REJECTED') {
+        matchesView = request.status === 'DITOLAK';
+      }
+
+      let matchesSpec = true;
+
+      if (specFilter === 'A4' || specFilter === 'F4' || specFilter === 'A3') {
+        matchesSpec = request.paperSize === specFilter;
+      } else if (specFilter === 'BW' || specFilter === 'COLOR') {
+        matchesSpec = request.colorOption === specFilter;
+      } else if (specFilter === 'SINGLE' || specFilter === 'DOUBLE') {
+        matchesSpec = request.printSide === specFilter;
+      }
 
       const matchesSearch =
         !q ||
-        r.id.toLowerCase().includes(q) ||
-        r.teacherName.toLowerCase().includes(q) ||
-        (r.teacherEmail || '').toLowerCase().includes(q) ||
-        r.subjectClass.toLowerCase().includes(q) ||
-        r.title.toLowerCase().includes(q);
+        request.id.toLowerCase().includes(q) ||
+        request.teacherName.toLowerCase().includes(q) ||
+        request.subjectClass.toLowerCase().includes(q) ||
+        request.title.toLowerCase().includes(q);
 
-      return matchesStatus && matchesSearch;
+      return matchesView && matchesSpec && matchesSearch;
     });
-  }, [requests, search, selectedStatus]);
+
+    return result.sort((a, b) => {
+      // Sedang dicetak selalu di atas.
+      if (
+        a.status === 'SEDANG_DICETAK' &&
+        b.status !== 'SEDANG_DICETAK'
+      ) {
+        return -1;
+      }
+
+      if (
+        b.status === 'SEDANG_DICETAK' &&
+        a.status !== 'SEDANG_DICETAK'
+      ) {
+        return 1;
+      }
+
+      // Setelah itu prioritas tinggi.
+      if (a.urgency === 'TINGGI' && b.urgency !== 'TINGGI') {
+        return -1;
+      }
+
+      if (b.urgency === 'TINGGI' && a.urgency !== 'TINGGI') {
+        return 1;
+      }
+
+      // Lalu target paling dekat.
+      return String(a.targetDate || '').localeCompare(
+        String(b.targetDate || '')
+      );
+    });
+  }, [
+    requests,
+    search,
+    queueView,
+    specFilter,
+    todayKey,
+    tomorrowKey,
+  ]);
+
+  // =====================================================
+  // PROCESS
+  // =====================================================
 
   const updatePrintStatus = async (
-    request: PhotocopyRequest,
+    request: ResourceRequest,
     newStatus: 'SEDANG_DICETAK' | 'SELESAI'
   ) => {
     const confirmation =
       newStatus === 'SEDANG_DICETAK'
-        ? `Mulai proses fotokopi "${request.title}"?`
+        ? `Mulai mencetak "${request.title}"?`
         : `Tandai "${request.title}" sebagai selesai dicetak?`;
 
     if (!window.confirm(confirmation)) return;
@@ -171,11 +294,14 @@ const completedCount = requests.filter(
       if (error) throw error;
 
       if (newStatus === 'SEDANG_DICETAK') {
-        setMsg(`${request.id} sekarang sedang diproses oleh Resource.`);
-        setSelectedStatus('SEDANG_DICETAK');
+        setMsg(
+          `${request.id} sekarang berstatus SEDANG DICETAK.`
+        );
       } else {
-        setMsg(`${request.id} selesai dicetak dan masuk Riwayat Fotokopi.`);
-        setSelectedStatus('SELESAI');
+        setMsg(
+          `${request.id} selesai dicetak dan masuk Riwayat Fotokopi.`
+        );
+        setQueueView('HISTORY');
       }
 
       setSelectedRequest(null);
@@ -192,11 +318,11 @@ const completedCount = requests.filter(
   };
 
   const handleOpenDocument = async (
-    request: PhotocopyRequest
+    request: ResourceRequest
   ) => {
     if (request.status === 'DITOLAK') {
       setErrorMsg(
-        'Dokumen yang ditolak tidak masuk proses fotokopi Resource.'
+        'Pengajuan yang ditolak tidak masuk proses cetak Resource.'
       );
       return;
     }
@@ -206,7 +332,7 @@ const completedCount = requests.filter(
       return;
     }
 
-    setOpeningFile(true);
+    setOpeningId(request.id);
     setErrorMsg('');
 
     try {
@@ -240,21 +366,45 @@ const completedCount = requests.filter(
         err?.message || 'Gagal membuka dokumen.'
       );
     } finally {
-      setOpeningFile(false);
+      setOpeningId(null);
     }
   };
 
-  const statusBadge = (status: string) => {
-    if (status === 'DISETUJUI') {
+  // =====================================================
+  // DISPLAY HELPERS
+  // =====================================================
+
+  const formatDate = (date?: string) => {
+    if (!date) return '-';
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return new Date(`${date}T00:00:00`).toLocaleDateString(
+        'id-ID',
+        {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        }
+      );
+    }
+
+    return new Date(date).toLocaleString('id-ID', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+  };
+
+  const statusBadge = (request: ResourceRequest) => {
+    if (request.status === 'DISETUJUI') {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 border border-green-200 text-green-700 rounded-lg text-[10px] font-bold">
           <CheckCircle2 className="w-3 h-3" />
-          SIAP DIPROSES
+          SIAP DICETAK
         </span>
       );
     }
 
-    if (status === 'SEDANG_DICETAK') {
+    if (request.status === 'SEDANG_DICETAK') {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 border border-blue-200 text-blue-700 rounded-lg text-[10px] font-bold">
           <Printer className="w-3 h-3" />
@@ -263,7 +413,7 @@ const completedCount = requests.filter(
       );
     }
 
-    if (status === 'SELESAI') {
+    if (request.status === 'SELESAI') {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[10px] font-bold">
           <History className="w-3 h-3" />
@@ -280,33 +430,33 @@ const completedCount = requests.filter(
     );
   };
 
-  const formatDate = (date?: string) => {
-    if (!date) return '-';
-
-    return new Date(date).toLocaleDateString('id-ID', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    });
-  };
+  const queueViewLabel = {
+    TODAY: 'Pekerjaan Hari Ini',
+    TOMORROW: 'Pekerjaan Besok',
+    UPCOMING: 'Pekerjaan Mendatang',
+    HISTORY: 'Riwayat Fotokopi',
+    REJECTED: 'Pengajuan Ditolak',
+    ALL: 'Semua Data Resource',
+  }[queueView];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-5">
+      {/* HEADER */}
       <div className="bg-slate-900 text-white p-6 sm:p-8 rounded-xl border border-slate-800 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 shadow-sm">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mb-2">
             <Building2 className="w-3.5 h-3.5" />
-            <span>Admin Resource</span>
+            Admin Resource
           </div>
 
           <h2 className="text-2xl font-bold">
-            Data Keputusan Pengajuan Fotokopi
+            Print Queue / Antrean Cetak
           </h2>
 
           <p className="text-xs text-slate-300 mt-1 max-w-2xl">
-            Tim Resource hanya melihat pengajuan yang telah
-            mendapat keputusan Kepala Sekolah. Pengajuan yang
-            masih menunggu tidak ditampilkan di halaman ini.
+            Fokus pada pekerjaan berdasarkan tanggal kebutuhan.
+            Pekerjaan yang melewati target otomatis tetap masuk
+            ke antrean Hari Ini agar tidak terlewat.
           </p>
         </div>
 
@@ -352,233 +502,335 @@ const completedCount = requests.filter(
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <button
-          type="button"
-          onClick={() => setSelectedStatus('DISETUJUI')}
-          className="text-left bg-green-50 border border-green-200 rounded-xl p-5"
-        >
-          <div className="text-xs font-bold text-green-700 uppercase">
-            Siap Diproses
-          </div>
-          <div className="text-3xl font-bold text-green-900 mt-2">
-            {approvedCount}
-          </div>
-        </button>
+      {/* MAIN QUEUE TABS */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <QueueCard
+          title="Hari Ini"
+          value={todayCount}
+          icon={<CalendarDays className="w-5 h-5" />}
+          active={queueView === 'TODAY'}
+          onClick={() => setQueueView('TODAY')}
+          className="bg-amber-50 border-amber-200 text-amber-800"
+        />
 
-        <button
-          type="button"
-          onClick={() => setSelectedStatus('SEDANG_DICETAK')}
-          className="text-left bg-blue-50 border border-blue-200 rounded-xl p-5"
-        >
-          <div className="text-xs font-bold text-blue-700 uppercase">
-            Sedang Dicetak
-          </div>
-          <div className="text-3xl font-bold text-blue-900 mt-2">
-            {printingCount}
-          </div>
-        </button>
+        <QueueCard
+          title="Besok"
+          value={tomorrowCount}
+          icon={<CalendarClock className="w-5 h-5" />}
+          active={queueView === 'TOMORROW'}
+          onClick={() => setQueueView('TOMORROW')}
+          className="bg-blue-50 border-blue-200 text-blue-800"
+        />
 
-        <button
-          type="button"
-          onClick={() => setSelectedStatus('SELESAI')}
-          className="text-left bg-slate-50 border border-slate-200 rounded-xl p-5"
-        >
-          <div className="text-xs font-bold text-slate-600 uppercase">
-            Riwayat Fotokopi
-          </div>
-          <div className="text-3xl font-bold text-slate-900 mt-2">
-            {completedCount}
-          </div>
-        </button>
+        <QueueCard
+          title="Mendatang"
+          value={upcomingCount}
+          icon={<CalendarRange className="w-5 h-5" />}
+          active={queueView === 'UPCOMING'}
+          onClick={() => setQueueView('UPCOMING')}
+          className="bg-indigo-50 border-indigo-200 text-indigo-800"
+        />
 
-        <button
-          type="button"
-          onClick={() => setSelectedStatus('DITOLAK')}
-          className="text-left bg-red-50 border border-red-200 rounded-xl p-5"
-        >
-          <div className="text-xs font-bold text-red-700 uppercase">
-            Ditolak
-          </div>
-          <div className="text-3xl font-bold text-red-900 mt-2">
-            {rejectedCount}
-          </div>
-        </button>
+        <QueueCard
+          title="Riwayat"
+          value={historyCount}
+          icon={<History className="w-5 h-5" />}
+          active={queueView === 'HISTORY'}
+          onClick={() => setQueueView('HISTORY')}
+          className="bg-slate-50 border-slate-200 text-slate-800"
+        />
 
-        <div className="bg-slate-900 text-white border border-slate-800 rounded-xl p-5">
-          <div className="text-xs font-bold text-slate-400 uppercase">
-            HVS Antrean
+        <QueueCard
+          title="Ditolak"
+          value={rejectedCount}
+          icon={<XCircle className="w-5 h-5" />}
+          active={queueView === 'REJECTED'}
+          onClick={() => setQueueView('REJECTED')}
+          className="bg-red-50 border-red-200 text-red-800"
+        />
+      </div>
+
+      {/* SMALL SUMMARY */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
+            <Printer className="w-5 h-5" />
           </div>
-          <div className="text-3xl font-bold text-indigo-300 mt-2">
-            {approvedSheets}
+          <div>
+            <div className="text-[10px] uppercase font-bold text-slate-400">
+              Sedang Dicetak
+            </div>
+            <div className="text-xl font-bold text-slate-900">
+              {printingCount}
+            </div>
           </div>
-          <div className="text-[10px] text-slate-400">
-            lembar
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center gap-3 text-white">
+          <div className="w-10 h-10 rounded-lg bg-indigo-500/20 text-indigo-300 flex items-center justify-center">
+            <FileText className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="text-[10px] uppercase font-bold text-slate-400">
+              HVS Antrean Aktif
+            </div>
+            <div className="text-xl font-bold text-indigo-300">
+              {queueSheets}{' '}
+              <span className="text-xs text-slate-400">
+                lembar
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex flex-col lg:flex-row justify-between gap-4">
+      {/* SEARCH + SPEC FILTER */}
+      <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex flex-col lg:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari nama guru, kelas, judul, email, atau tracking ID..."
+            placeholder="Cari guru, kelas, judul, atau Tracking ID..."
             className="w-full border border-slate-200 rounded-lg pl-9 pr-3 py-2.5 text-xs outline-none focus:border-blue-400"
           />
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {(
-            [
-              ['ALL', 'Semua'],
-              ['DISETUJUI', 'Siap Diproses'],
-              ['SEDANG_DICETAK', 'Sedang Dicetak'],
-              ['SELESAI', 'Riwayat'],
-              ['DITOLAK', 'Ditolak'],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setSelectedStatus(value)}
-              className={`px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
-                selectedStatus === value
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <select
+          value={specFilter}
+          onChange={(e) =>
+            setSpecFilter(e.target.value as SpecFilter)
+          }
+          className="px-3 py-2.5 border border-slate-200 rounded-lg text-xs font-semibold bg-white text-slate-700"
+        >
+          <option value="ALL">Semua Spesifikasi</option>
+          <option value="A4">Kertas A4</option>
+          <option value="F4">Kertas F4</option>
+          <option value="A3">Kertas A3</option>
+          <option value="BW">Hitam Putih</option>
+          <option value="COLOR">Berwarna</option>
+          <option value="SINGLE">1 Sisi</option>
+          <option value="DOUBLE">2 Sisi</option>
+        </select>
+
+        <button
+          type="button"
+          onClick={() => setQueueView('ALL')}
+          className={`px-4 py-2.5 border rounded-lg text-xs font-bold ${
+            queueView === 'ALL'
+              ? 'bg-slate-900 text-white border-slate-900'
+              : 'bg-white text-slate-600 border-slate-200'
+          }`}
+        >
+          Semua Data
+        </button>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        {loading ? (
-          <div className="py-16 text-center">
-            <RefreshCw className="w-7 h-7 animate-spin mx-auto text-blue-600 mb-3" />
-            <p className="text-sm font-semibold text-slate-700">
-              Memuat data Resource...
-            </p>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="py-16 text-center px-4">
-            <Building2 className="w-10 h-10 mx-auto text-slate-300 mb-3" />
-            <h3 className="font-bold text-slate-800">
-              Belum Ada Data
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Belum ada pengajuan yang sesuai dengan filter ini.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr className="text-[10px] uppercase tracking-wider text-slate-500">
-                  <th className="px-4 py-3 font-bold">
-                    Pengajuan
-                  </th>
-                  <th className="px-4 py-3 font-bold">
-                    Guru / Kelas
-                  </th>
-                  <th className="px-4 py-3 font-bold">
-                    Kebutuhan
-                  </th>
-                  <th className="px-4 py-3 font-bold">
-                    Keputusan
-                  </th>
-                  <th className="px-4 py-3 font-bold text-center">
-                    Detail
-                  </th>
-                </tr>
-              </thead>
+      {/* QUEUE HEADER */}
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="font-bold text-slate-900">
+            {queueViewLabel}
+          </h3>
+          <p className="text-[11px] text-slate-500">
+            {filtered.length} pengajuan ditampilkan
+          </p>
+        </div>
 
-              <tbody className="divide-y divide-slate-100">
-                {filtered.map((request) => (
-                  <tr
-                    key={request.id}
-                    className="hover:bg-slate-50/70"
-                  >
-                    <td className="px-4 py-4 align-top">
-                      <div className="text-xs font-bold text-blue-700">
-                        {request.id}
-                      </div>
-                      <div className="text-sm font-bold text-slate-900 mt-1">
-                        {request.title}
-                      </div>
-                      <div className="text-[10px] text-slate-500 mt-1">
-                        Diajukan {formatDate(request.submittedAt)}
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-4 align-top">
-                      <div className="text-xs font-bold text-slate-800">
-                        {request.teacherName}
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-1">
-                        {request.subjectClass}
-                      </div>
-                      {request.teacherEmail && (
-                        <div className="text-[10px] text-slate-400 mt-1">
-                          {request.teacherEmail}
-                        </div>
-                      )}
-                    </td>
-
-                    <td className="px-4 py-4 align-top">
-                      <div className="text-xs font-semibold text-slate-800">
-                        {request.pagesCount} halaman ×{' '}
-                        {request.copiesCount} salinan
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-1">
-                        {request.totalSheets} lembar •{' '}
-                        {request.paperSize} •{' '}
-                        {request.colorOption === 'BW'
-                          ? 'Hitam Putih'
-                          : 'Warna'}
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-1">
-                        Dibutuhkan {formatDate(request.targetDate)}
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-4 align-top">
-                      {statusBadge(request.status)}
-                      <div className="text-[10px] text-slate-500 mt-2">
-                        {request.reviewedBy
-                          ? `Oleh ${request.reviewedBy}`
-                          : 'Keputusan Kepala Sekolah'}
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-4 align-top text-center">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRequest(request)}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-50"
-                      >
-                        <Eye className="w-4 h-4" />
-                        Lihat
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {specFilter !== 'ALL' && (
+          <button
+            type="button"
+            onClick={() => setSpecFilter('ALL')}
+            className="text-xs font-bold text-blue-700 underline"
+          >
+            Hapus Filter Spesifikasi
+          </button>
         )}
       </div>
 
+      {/* QUEUE */}
+      <div className="space-y-2">
+        {loading ? (
+          <div className="bg-white border border-slate-200 rounded-xl py-16 text-center">
+            <RefreshCw className="w-7 h-7 animate-spin mx-auto text-blue-600 mb-3" />
+            <p className="text-sm font-semibold text-slate-700">
+              Memuat antrean Resource...
+            </p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-xl py-16 text-center px-4">
+            <Printer className="w-10 h-10 mx-auto text-slate-300 mb-3" />
+            <h3 className="font-bold text-slate-800">
+              Tidak Ada Pekerjaan
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Tidak ada pengajuan pada kelompok ini.
+            </p>
+          </div>
+        ) : (
+          filtered.map((request) => (
+            <div
+              key={request.id}
+              className={`bg-white border rounded-xl px-4 py-3 shadow-sm ${
+                isOverdue(request)
+                  ? 'border-red-300'
+                  : request.status === 'SEDANG_DICETAK'
+                  ? 'border-blue-300'
+                  : 'border-slate-200'
+              }`}
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-4 lg:items-center">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {statusBadge(request)}
+
+                    {isOverdue(request) && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-lg text-[9px] font-bold">
+                        <Clock3 className="w-3 h-3" />
+                        LEWAT TARGET
+                      </span>
+                    )}
+
+                    {request.urgency === 'TINGGI' && (
+                      <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-lg text-[9px] font-bold">
+                        PRIORITAS TINGGI
+                      </span>
+                    )}
+
+                    <span className="font-mono text-[10px] font-bold text-blue-700">
+                      {request.id}
+                    </span>
+                  </div>
+
+                  <h4 className="text-sm font-bold text-slate-900 mt-2">
+                    {request.title}
+                  </h4>
+
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500 mt-1">
+                    <span>
+                      <strong className="text-slate-700">
+                        {request.teacherName}
+                      </strong>{' '}
+                      • {request.subjectClass}
+                    </span>
+
+                    <span>
+                      {request.pagesCount} hal ×{' '}
+                      {request.copiesCount} salinan
+                    </span>
+
+                    <span>
+                      <strong>{request.totalSheets}</strong> lembar
+                    </span>
+
+                    <span>
+                      {request.paperSize} •{' '}
+                      {request.colorOption === 'BW'
+                        ? 'BW'
+                        : 'Warna'}{' '}
+                      •{' '}
+                      {request.printSide === 'DOUBLE'
+                        ? '2 sisi'
+                        : '1 sisi'}
+                    </span>
+
+                    <span
+                      className={
+                        isOverdue(request)
+                          ? 'font-bold text-red-600'
+                          : 'font-semibold text-slate-600'
+                      }
+                    >
+                      Target: {formatDate(request.targetDate)}
+                    </span>
+                  </div>
+
+                  {request.status === 'SEDANG_DICETAK' &&
+                    request.printedBy && (
+                      <div className="text-[10px] text-blue-700 mt-2">
+                        Sedang dikerjakan oleh:{' '}
+                        <strong>{request.printedBy}</strong>
+                        {request.printedAt
+                          ? ` • ${formatDate(request.printedAt)}`
+                          : ''}
+                      </div>
+                    )}
+                </div>
+
+                <div className="flex flex-wrap gap-2 lg:justify-end">
+                  {request.status !== 'DITOLAK' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleOpenDocument(request)
+                      }
+                      disabled={openingId === request.id}
+                      className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 rounded-lg text-[11px] font-bold text-slate-700 flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {request.fileType === 'url/link' ? (
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      ) : (
+                        <FileText className="w-3.5 h-3.5" />
+                      )}
+                      Buka File
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRequest(request)}
+                    className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 rounded-lg text-[11px] font-bold text-slate-700 flex items-center gap-1.5"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    Detail
+                  </button>
+
+                  {request.status === 'DISETUJUI' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updatePrintStatus(
+                          request,
+                          'SEDANG_DICETAK'
+                        )
+                      }
+                      disabled={processingId === request.id}
+                      className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      Mulai Cetak
+                    </button>
+                  )}
+
+                  {request.status === 'SEDANG_DICETAK' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updatePrintStatus(request, 'SELESAI')
+                      }
+                      disabled={processingId === request.id}
+                      className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Selesai
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* DETAIL MODAL */}
       {selectedRequest && (
-        <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-slate-200">
-            <div className="sticky top-0 bg-white border-b border-slate-200 p-5 flex items-start justify-between gap-4">
+            <div className="sticky top-0 bg-white border-b border-slate-200 p-5 flex items-start justify-between gap-4 z-10">
               <div>
-                {statusBadge(selectedRequest.status)}
+                {statusBadge(selectedRequest)}
                 <h3 className="text-xl font-bold text-slate-900 mt-2">
                   {selectedRequest.title}
                 </h3>
@@ -597,7 +849,14 @@ const completedCount = requests.filter(
             </div>
 
             <div className="p-5 space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {isOverdue(selectedRequest) && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800 text-xs font-bold flex items-center gap-2">
+                  <Clock3 className="w-4 h-4" />
+                  Target cetak sudah terlewati. Mohon diprioritaskan.
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Info
                   label="Nama Guru"
                   value={selectedRequest.teacherName}
@@ -607,20 +866,12 @@ const completedCount = requests.filter(
                   value={selectedRequest.subjectClass}
                 />
                 <Info
-                  label="Email"
-                  value={selectedRequest.teacherEmail || '-'}
-                />
-                <Info
                   label="Tanggal Diperlukan"
                   value={formatDate(selectedRequest.targetDate)}
                 />
                 <Info
-                  label="Jumlah Halaman"
-                  value={`${selectedRequest.pagesCount}`}
-                />
-                <Info
-                  label="Jumlah Salinan"
-                  value={`${selectedRequest.copiesCount}`}
+                  label="Jumlah"
+                  value={`${selectedRequest.pagesCount} halaman × ${selectedRequest.copiesCount} salinan`}
                 />
                 <Info
                   label="Total HVS"
@@ -631,14 +882,32 @@ const completedCount = requests.filter(
                   value={`${selectedRequest.paperSize} • ${
                     selectedRequest.colorOption === 'BW'
                       ? 'Hitam Putih'
-                      : 'Warna'
+                      : 'Berwarna'
                   } • ${
                     selectedRequest.printSide === 'DOUBLE'
-                      ? 'Bolak-balik'
-                      : 'Satu sisi'
+                      ? '2 Sisi'
+                      : '1 Sisi'
                   }`}
                 />
               </div>
+
+              {selectedRequest.reviewedBy && (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                  <div className="flex items-center gap-2 text-green-800 font-bold text-xs">
+                    <ShieldCheck className="w-4 h-4" />
+                    Keputusan Kepala Sekolah
+                  </div>
+                  <div className="text-[11px] text-green-700 mt-2">
+                    Oleh:{' '}
+                    <strong>{selectedRequest.reviewedBy}</strong>
+                    {selectedRequest.reviewedAt
+                      ? ` • ${formatDate(
+                          selectedRequest.reviewedAt
+                        )}`
+                      : ''}
+                  </div>
+                </div>
+              )}
 
               {selectedRequest.notes && (
                 <DetailBox
@@ -647,8 +916,8 @@ const completedCount = requests.filter(
                 />
               )}
 
-              {selectedRequest.status !== 'DITOLAK' &&
-                selectedRequest.approvalNotes && (
+              {selectedRequest.approvalNotes &&
+                selectedRequest.status !== 'DITOLAK' && (
                   <DetailBox
                     label="Catatan Persetujuan Kepala Sekolah"
                     value={selectedRequest.approvalNotes}
@@ -666,38 +935,21 @@ const completedCount = requests.filter(
                 />
               )}
 
-              <div className="pt-2 border-t border-slate-100">
-                <div className="text-xs font-bold text-slate-700 mb-2">
-                  Keputusan Kepala Sekolah
-                </div>
-                <div className="text-xs text-slate-600">
-                  {selectedRequest.reviewedBy || '-'} •{' '}
-                  {formatDate(selectedRequest.reviewedAt)}
-                </div>
-              </div>
-
-              {selectedRequest.status !== 'DITOLAK' &&
-                selectedRequest.fileUrl && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleOpenDocument(selectedRequest)
-                    }
-                    disabled={openingFile}
-                    className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
-                  >
-                    {selectedRequest.fileType === 'url/link' ? (
-                      <ExternalLink className="w-4 h-4" />
-                    ) : (
-                      <FileText className="w-4 h-4" />
-                    )}
-                    {openingFile
-                      ? 'Membuka Dokumen...'
-                      : selectedRequest.status === 'SELESAI'
-                      ? 'Buka File yang Pernah Difotokopi'
-                      : 'Buka Dokumen untuk Dicetak'}
-                  </button>
-                )}
+              {selectedRequest.status !== 'DITOLAK' && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleOpenDocument(selectedRequest)
+                  }
+                  disabled={openingId === selectedRequest.id}
+                  className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+                >
+                  <FileText className="w-4 h-4" />
+                  {selectedRequest.status === 'SELESAI'
+                    ? 'Buka File Riwayat Fotokopi'
+                    : 'Buka Dokumen untuk Dicetak'}
+                </button>
+              )}
 
               {selectedRequest.status === 'DISETUJUI' && (
                 <button
@@ -734,13 +986,13 @@ const completedCount = requests.filter(
               )}
 
               {selectedRequest.status === 'SELESAI' && (
-                <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
-                  <History className="w-6 h-6 text-green-600 mx-auto mb-2" />
-                  <div className="text-xs font-bold text-green-800">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
+                  <History className="w-6 h-6 text-slate-600 mx-auto mb-2" />
+                  <div className="text-xs font-bold text-slate-800">
                     PERNAH DIFOTOKOPI
                   </div>
                   {selectedRequest.completedAt && (
-                    <div className="text-[11px] text-green-700 mt-2">
+                    <div className="text-[11px] text-slate-500 mt-2">
                       Selesai pada:{' '}
                       <strong>
                         {formatDate(selectedRequest.completedAt)}
@@ -756,6 +1008,43 @@ const completedCount = requests.filter(
     </div>
   );
 };
+
+const QueueCard: React.FC<{
+  title: string;
+  value: number;
+  icon: React.ReactNode;
+  active: boolean;
+  onClick: () => void;
+  className: string;
+}> = ({
+  title,
+  value,
+  icon,
+  active,
+  onClick,
+  className,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`text-left rounded-xl border p-4 shadow-sm transition-all ${className} ${
+      active
+        ? 'ring-2 ring-slate-900 ring-offset-1'
+        : ''
+    }`}
+  >
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[10px] uppercase font-bold">
+        {title}
+      </span>
+      {icon}
+    </div>
+
+    <div className="text-2xl font-extrabold mt-2">
+      {value}
+    </div>
+  </button>
+);
 
 const Info: React.FC<{
   label: string;
