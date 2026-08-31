@@ -42,6 +42,8 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [copiedId, setCopiedId] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 12;
 
   const mapHistoryRequest = (row: any): PhotocopyRequest => ({
     id: row.id,
@@ -155,6 +157,427 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
     }
   };
 
+  const escapeHtml = (value?: string | number) => {
+    return String(value ?? '-')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  };
+
+  const printApprovalProof = (request: PhotocopyRequest) => {
+    const isApproved =
+      request.status === 'DISETUJUI' ||
+      request.status === 'SEDANG_DICETAK' ||
+      request.status === 'SELESAI';
+
+    if (!isApproved) {
+      setErrorMsg(
+        'Bukti persetujuan hanya tersedia untuk pengajuan yang sudah disetujui Kepala Sekolah.'
+      );
+      return;
+    }
+
+    const printWindow = window.open(
+      '',
+      '_blank',
+      'width=900,height=1100'
+    );
+
+    if (!printWindow) {
+      setErrorMsg(
+        'Popup diblokir browser. Izinkan popup untuk mencetak bukti persetujuan.'
+      );
+      return;
+    }
+
+    const approvalDate = formatDate(request.reviewedAt);
+    const targetDate = formatTargetDate(request.targetDate);
+    const submittedDate = formatDate(request.submittedAt);
+    const verificationUrl = `${window.location.origin}/lacak-status`;
+
+    const colorLabel =
+      request.colorOption === 'COLOR'
+        ? 'Berwarna'
+        : 'Hitam Putih';
+
+    const sideLabel =
+      request.printSide === 'DOUBLE'
+        ? '2 Sisi / Bolak-balik'
+        : '1 Sisi';
+
+    const currentStatus =
+      request.status === 'SELESAI'
+        ? 'SELESAI / PERNAH DIFOTOKOPI'
+        : request.status === 'SEDANG_DICETAK'
+        ? 'SEDANG DIPROSES RESOURCE'
+        : 'DISETUJUI';
+
+    const fileName = `Bukti_Persetujuan_${request.id}`;
+
+    printWindow.document.write(`
+      <!doctype html>
+      <html lang="id">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>${escapeHtml(fileName)}</title>
+
+          <style>
+            @page {
+              size: A4;
+              margin: 14mm;
+            }
+
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              margin: 0;
+              font-family: Arial, Helvetica, sans-serif;
+              color: #0f172a;
+              background: #ffffff;
+              font-size: 12px;
+              line-height: 1.45;
+            }
+
+            .sheet {
+              width: 100%;
+            }
+
+            .header {
+              border-bottom: 3px solid #0f172a;
+              padding-bottom: 14px;
+              margin-bottom: 18px;
+            }
+
+            .eyebrow {
+              font-size: 10px;
+              font-weight: 700;
+              letter-spacing: .08em;
+              text-transform: uppercase;
+              color: #2563eb;
+              margin-bottom: 4px;
+            }
+
+            h1 {
+              font-size: 22px;
+              margin: 0;
+              line-height: 1.2;
+            }
+
+            .subtitle {
+              color: #64748b;
+              margin-top: 5px;
+              font-size: 11px;
+            }
+
+            .approval {
+              border: 2px solid #86efac;
+              background: #f0fdf4;
+              border-radius: 10px;
+              padding: 14px;
+              margin-bottom: 18px;
+            }
+
+            .approval-title {
+              color: #166534;
+              font-size: 14px;
+              font-weight: 800;
+              margin-bottom: 4px;
+            }
+
+            .approval-desc {
+              color: #15803d;
+              font-size: 11px;
+            }
+
+            .tracking {
+              background: #0f172a;
+              color: white;
+              border-radius: 10px;
+              padding: 13px 15px;
+              margin-bottom: 18px;
+            }
+
+            .tracking-label {
+              font-size: 9px;
+              color: #94a3b8;
+              text-transform: uppercase;
+              font-weight: 700;
+              letter-spacing: .08em;
+            }
+
+            .tracking-value {
+              font-size: 20px;
+              font-family: "Courier New", monospace;
+              font-weight: 800;
+              color: #60a5fa;
+              margin-top: 3px;
+            }
+
+            .section {
+              margin-bottom: 17px;
+            }
+
+            .section-title {
+              font-size: 10px;
+              text-transform: uppercase;
+              font-weight: 800;
+              letter-spacing: .08em;
+              color: #475569;
+              border-bottom: 1px solid #cbd5e1;
+              padding-bottom: 6px;
+              margin-bottom: 8px;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+
+            td {
+              padding: 7px 8px;
+              border-bottom: 1px solid #e2e8f0;
+              vertical-align: top;
+            }
+
+            td:first-child {
+              width: 34%;
+              color: #64748b;
+              font-weight: 700;
+            }
+
+            td:last-child {
+              font-weight: 600;
+              color: #0f172a;
+            }
+
+            .note {
+              padding: 10px 12px;
+              border: 1px solid #bbf7d0;
+              background: #f0fdf4;
+              border-radius: 8px;
+              color: #166534;
+              margin-top: 8px;
+            }
+
+            .verification {
+              margin-top: 20px;
+              padding-top: 12px;
+              border-top: 1px dashed #94a3b8;
+              color: #64748b;
+              font-size: 9.5px;
+            }
+
+            .verification strong {
+              color: #334155;
+            }
+
+            .footer {
+              margin-top: 14px;
+              display: flex;
+              justify-content: space-between;
+              gap: 20px;
+              font-size: 9px;
+              color: #94a3b8;
+            }
+
+            .status-pill {
+              display: inline-block;
+              border: 1px solid #86efac;
+              background: #dcfce7;
+              color: #166534;
+              font-size: 10px;
+              font-weight: 800;
+              border-radius: 999px;
+              padding: 4px 8px;
+              margin-top: 8px;
+            }
+
+            .no-print {
+              margin-bottom: 14px;
+              text-align: right;
+            }
+
+            .print-button {
+              border: 0;
+              background: #2563eb;
+              color: white;
+              border-radius: 8px;
+              padding: 9px 14px;
+              font-size: 11px;
+              font-weight: 700;
+              cursor: pointer;
+            }
+
+            @media print {
+              .no-print {
+                display: none !important;
+              }
+
+              body {
+                print-color-adjust: exact;
+                -webkit-print-color-adjust: exact;
+              }
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="sheet">
+            <div class="no-print">
+              <button class="print-button" onclick="window.print()">
+                Cetak / Simpan PDF
+              </button>
+            </div>
+
+            <div class="header">
+              <div class="eyebrow">E-Photocopy</div>
+              <h1>Bukti Persetujuan Pengajuan Fotokopi</h1>
+              <div class="subtitle">
+                Portal Persetujuan Digital Bahan Ajar Sekolah - Tahun Ajaran 2026/2027
+              </div>
+            </div>
+
+            <div class="approval">
+              <div class="approval-title">
+                ✓ DISETUJUI KEPALA SEKOLAH
+              </div>
+              <div class="approval-desc">
+                Dokumen ini merupakan bukti digital bahwa pengajuan fotokopi telah memperoleh persetujuan Kepala Sekolah.
+              </div>
+              <div class="status-pill">
+                STATUS SAAT INI: ${escapeHtml(currentStatus)}
+              </div>
+            </div>
+
+            <div class="tracking">
+              <div class="tracking-label">Tracking ID</div>
+              <div class="tracking-value">${escapeHtml(request.id)}</div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Data Pengajuan</div>
+              <table>
+                <tr>
+                  <td>Nama Guru</td>
+                  <td>${escapeHtml(request.teacherName)}</td>
+                </tr>
+                <tr>
+                  <td>Kelas / Mata Pelajaran</td>
+                  <td>${escapeHtml(request.subjectClass)}</td>
+                </tr>
+                <tr>
+                  <td>Judul Bahan Ajar</td>
+                  <td>${escapeHtml(request.title)}</td>
+                </tr>
+                <tr>
+                  <td>Tanggal Pengajuan</td>
+                  <td>${escapeHtml(submittedDate)}</td>
+                </tr>
+                <tr>
+                  <td>Tanggal Diperlukan</td>
+                  <td>${escapeHtml(targetDate)}</td>
+                </tr>
+              </table>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Detail Fotokopi</div>
+              <table>
+                <tr>
+                  <td>Jumlah</td>
+                  <td>
+                    ${escapeHtml(request.pagesCount)} halaman ×
+                    ${escapeHtml(request.copiesCount)} salinan
+                  </td>
+                </tr>
+                <tr>
+                  <td>Total Kertas</td>
+                  <td>${escapeHtml(request.totalSheets)} lembar</td>
+                </tr>
+                <tr>
+                  <td>Ukuran Kertas</td>
+                  <td>${escapeHtml(request.paperSize)}</td>
+                </tr>
+                <tr>
+                  <td>Mode Warna</td>
+                  <td>${escapeHtml(colorLabel)}</td>
+                </tr>
+                <tr>
+                  <td>Sisi Cetak</td>
+                  <td>${escapeHtml(sideLabel)}</td>
+                </tr>
+              </table>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Persetujuan Kepala Sekolah</div>
+              <table>
+                <tr>
+                  <td>Keputusan</td>
+                  <td>DISETUJUI</td>
+                </tr>
+                <tr>
+                  <td>Disetujui Oleh</td>
+                  <td>${escapeHtml(
+                    request.reviewedBy || 'Kepala Sekolah'
+                  )}</td>
+                </tr>
+                <tr>
+                  <td>Tanggal Persetujuan</td>
+                  <td>${escapeHtml(approvalDate)}</td>
+                </tr>
+              </table>
+
+              ${
+                request.approvalNotes
+                  ? `
+                    <div class="note">
+                      <strong>Catatan Persetujuan:</strong><br />
+                      ${escapeHtml(request.approvalNotes)}
+                    </div>
+                  `
+                  : ''
+              }
+            </div>
+
+            <div class="verification">
+              <strong>Verifikasi:</strong>
+              Bukti ini dapat dicocokkan melalui halaman Lacak Status E-Photocopy
+              di ${escapeHtml(verificationUrl)} dengan Tracking ID
+              <strong>${escapeHtml(request.id)}</strong>.
+            </div>
+
+            <div class="footer">
+              <div>
+                Bukti dibuat dari sistem E-Photocopy.
+              </div>
+              <div>
+                Dicetak: ${escapeHtml(
+                  new Date().toLocaleString('id-ID')
+                )}
+              </div>
+            </div>
+          </div>
+
+          <script>
+            window.addEventListener('load', function () {
+              setTimeout(function () {
+                window.print();
+              }, 300);
+            });
+          </script>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+  };
+
   const getStatusStyle = (status: RequestStatus) => {
     switch (status) {
       case 'DISETUJUI':
@@ -247,6 +670,20 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
       return matchesStatus && matchesSearch;
     });
   }, [requests, filter, searchTerm]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, searchTerm]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredRequests.length / ITEMS_PER_PAGE)
+  );
+
+  const paginatedRequests = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredRequests.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredRequests, currentPage]);
 
   const filters: Array<{
     value: HistoryFilter;
@@ -452,87 +889,139 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filteredRequests.map((request) => {
+        <div className="space-y-2">
+          {paginatedRequests.map((request) => {
             const style = getStatusStyle(request.status);
+            const isApprovedHistory =
+              request.status === 'DISETUJUI' ||
+              request.status === 'SEDANG_DICETAK' ||
+              request.status === 'SELESAI';
 
             return (
               <div
                 key={request.id}
-                className={`bg-white border ${style.cardBorder} rounded-xl p-5 shadow-sm hover:shadow-md transition-all`}
+                className={`bg-white border ${style.cardBorder} rounded-xl px-4 py-3 shadow-sm hover:shadow-md transition-all`}
               >
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 border rounded-full text-[10px] font-bold ${style.className}`}
-                      >
-                        {style.icon}
-                        {style.label}
-                      </span>
+                <div className="grid grid-cols-1 md:grid-cols-[170px_minmax(0,1fr)_auto] md:items-center gap-3">
+                  <div>
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 border rounded-full text-[10px] font-bold ${style.className}`}
+                    >
+                      {style.icon}
+                      {style.shortLabel}
+                    </span>
 
-                      {request.urgency === 'TINGGI' && (
-                        <span className="px-2.5 py-1 bg-red-100 text-red-700 border border-red-200 rounded-full text-[10px] font-bold">
-                          URGENT
+                    {request.urgency === 'TINGGI' && (
+                      <span className="ml-1.5 px-2 py-1 bg-red-100 text-red-700 border border-red-200 rounded-full text-[9px] font-bold">
+                        URGENT
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <h3 className="font-bold text-slate-900 text-sm truncate max-w-full">
+                        {request.title}
+                      </h3>
+
+                      {isApprovedHistory && request.reviewedBy && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-green-700">
+                          <ShieldCheck className="w-3 h-3" />
+                          Disetujui Kepsek
                         </span>
                       )}
                     </div>
 
-                    <h3 className="font-bold text-slate-900 text-base">
-                      {request.title}
-                    </h3>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[10px] text-slate-500">
+                      <span>
+                        <strong className="text-slate-700">
+                          {request.teacherName}
+                        </strong>
+                        {' • '}
+                        {request.subjectClass}
+                      </span>
 
-                    <p className="text-xs text-slate-500 mt-1">
-                      <strong className="text-slate-700">
-                        {request.teacherName}
-                      </strong>
-                      {' • '}
-                      {request.subjectClass}
-                    </p>
-
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[11px] text-slate-500">
                       <span className="font-mono text-blue-700 font-semibold">
                         {request.id}
                       </span>
 
                       <span>
-                        {request.pagesCount} hal ×{' '}
-                        {request.copiesCount} salinan
+                        {request.pagesCount} hal × {request.copiesCount} salinan
+                        {' • '}
+                        {request.totalSheets} lembar
                       </span>
-
-                      <span>{request.totalSheets} lembar</span>
 
                       <span>
-                        Diajukan: {formatDate(request.submittedAt)}
+                        {formatDate(request.submittedAt)}
                       </span>
                     </div>
-
-                    {(request.status === 'DISETUJUI' ||
-                      request.status === 'SEDANG_DICETAK' ||
-                      request.status === 'SELESAI') &&
-                      request.reviewedBy && (
-                        <div className="mt-3 inline-flex items-center gap-2 text-[11px] font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                          <ShieldCheck className="w-4 h-4" />
-                          Disetujui oleh {request.reviewedBy}
-                          {request.reviewedAt
-                            ? ` • ${formatDate(request.reviewedAt)}`
-                            : ''}
-                        </div>
-                      )}
                   </div>
 
                   <button
                     type="button"
                     onClick={() => setSelectedRequest(request)}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors shrink-0"
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold transition-colors shrink-0"
                   >
-                    <Eye className="w-4 h-4" />
-                    Lihat Detail
+                    <Eye className="w-3.5 h-3.5" />
+                    Detail
                   </button>
                 </div>
               </div>
             );
           })}
+
+          {filteredRequests.length > ITEMS_PER_PAGE && (
+            <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+              <div className="text-xs text-slate-500">
+                Menampilkan{' '}
+                <strong className="text-slate-800">
+                  {(currentPage - 1) * ITEMS_PER_PAGE + 1}
+                </strong>
+                {'–'}
+                <strong className="text-slate-800">
+                  {Math.min(
+                    currentPage * ITEMS_PER_PAGE,
+                    filteredRequests.length
+                  )}
+                </strong>{' '}
+                dari{' '}
+                <strong className="text-slate-800">
+                  {filteredRequests.length}
+                </strong>{' '}
+                pengajuan
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCurrentPage((page) => Math.max(1, page - 1))
+                  }
+                  disabled={currentPage === 1}
+                  className="px-3 py-2 text-xs font-bold border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Sebelumnya
+                </button>
+
+                <span className="px-3 py-2 text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg">
+                  {currentPage} / {totalPages}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.min(totalPages, page + 1)
+                    )
+                  }
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-2 text-xs font-bold border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Berikutnya
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -602,18 +1091,35 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      copyTrackingId(selectedRequest.id)
-                    }
-                    className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold"
-                  >
-                    <Copy className="w-4 h-4" />
-                    {copiedId === selectedRequest.id
-                      ? 'Tersalin'
-                      : 'Salin Tracking ID'}
-                  </button>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        copyTrackingId(selectedRequest.id)
+                      }
+                      className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold"
+                    >
+                      <Copy className="w-4 h-4" />
+                      {copiedId === selectedRequest.id
+                        ? 'Tersalin'
+                        : 'Salin Tracking ID'}
+                    </button>
+
+                    {(selectedRequest.status === 'DISETUJUI' ||
+                      selectedRequest.status === 'SEDANG_DICETAK' ||
+                      selectedRequest.status === 'SELESAI') && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          printApprovalProof(selectedRequest)
+                        }
+                        className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 border border-green-500 rounded-lg text-xs font-bold text-white"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Cetak / Simpan PDF
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -671,6 +1177,17 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                       </div>
                     </div>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      printApprovalProof(selectedRequest)
+                    }
+                    className="mt-4 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-green-700 hover:bg-green-800 text-white rounded-lg text-xs font-bold"
+                  >
+                    <Printer className="w-4 h-4" />
+                    Cetak Bukti Persetujuan / Simpan PDF
+                  </button>
                 </div>
               )}
 
