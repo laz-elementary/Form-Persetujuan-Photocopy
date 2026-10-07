@@ -1,4 +1,10 @@
-export type RequestStatus = 'MENUNGGU' | 'DISETUJUI' | 'DITOLAK' | 'SEDANG_DICETAK' | 'SELESAI';
+export type RequestStatus =
+  | 'MENUNGGU'
+  | 'PERLU_REVISI'
+  | 'DISETUJUI'
+  | 'DITOLAK'
+  | 'SEDANG_DICETAK'
+  | 'SELESAI';
 
 export type PaperSize = 'A4' | 'F4' | 'A3';
 
@@ -8,7 +14,12 @@ export type PrintSide = 'SINGLE' | 'DOUBLE';
 
 export type Urgency = 'NORMAL' | 'TINGGI';
 
-export type UserRole = 'GURU' | 'KEPSEK' | 'ADMIN' | 'RESOURCE';
+export type UserRole =
+  | 'GURU'
+  | 'KEPSEK'
+  | 'WAKASEK'
+  | 'ADMIN'
+  | 'RESOURCE';
 
 export interface PhotocopyRequest {
   id: string;
@@ -20,9 +31,9 @@ export interface PhotocopyRequest {
   fileName: string;
   fileSize: string;
   fileType: string;
-  fileDataUrl?: string; // Data URL for preview if uploaded
-  fileUrl?: string; // Link URL for external document (Google Drive / Canva / Dropbox)
-  driveFolderUrl?: string; // Google Drive folder link for uploaded materials
+  fileDataUrl?: string;
+  fileUrl?: string;
+  driveFolderUrl?: string;
   pagesCount: number;
   copiesCount: number;
   totalSheets: number;
