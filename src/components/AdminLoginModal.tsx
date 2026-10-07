@@ -1,14 +1,21 @@
 import React, { useState } from 'react';
 import { UserAccount } from '../types';
 import { supabase } from '../lib/supabase';
-import { X, ShieldCheck, LogIn, AlertCircle } from 'lucide-react';
+import {
+  X,
+  ShieldCheck,
+  LogIn,
+  AlertCircle,
+} from 'lucide-react';
 
 interface LoginModalProps {
   onLoginSuccess: (user: UserAccount) => void;
   onClose: () => void;
 }
 
-export const AdminLoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
+export const AdminLoginModal: React.FC<LoginModalProps> = ({
+  onClose,
+}) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -17,22 +24,23 @@ export const AdminLoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
       setIsLoading(true);
       setError('');
 
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: window.location.origin,
-        },
-      });
+      const { error } =
+        await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: window.location.origin,
+          },
+        });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
     } catch (err: any) {
       console.error('Google login error:', err);
+
       setError(
         err?.message ||
           'Login Google gagal. Silakan coba kembali.'
       );
+
       setIsLoading(false);
     }
   };
@@ -40,8 +48,6 @@ export const AdminLoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden relative">
-
-        {/* Header */}
         <div className="bg-slate-900 text-white p-6 relative">
           <button
             onClick={onClose}
@@ -55,17 +61,15 @@ export const AdminLoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
           </div>
 
           <h3 className="text-xl font-bold">
-            Portal Pengelola
+            Portal Persetujuan & Admin
           </h3>
 
           <p className="text-xs text-slate-300 mt-1">
-            Kepala Sekolah & Administrator
+            Kepala Sekolah, Wakil Kepala Sekolah & Administrator
           </p>
         </div>
 
-        {/* Content */}
         <div className="p-6 space-y-5">
-
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-lg font-medium flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
@@ -83,8 +87,9 @@ export const AdminLoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
             </h4>
 
             <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-              Gunakan akun Google Lazuardi yang telah terdaftar sebagai
-              Kepala Sekolah atau Administrator.
+              Gunakan akun Google Lazuardi yang telah terdaftar
+              sebagai Kepala Sekolah, Wakil Kepala Sekolah,
+              atau Administrator.
             </p>
           </div>
 
@@ -111,11 +116,11 @@ export const AdminLoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
 
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
             <p className="text-[11px] text-slate-500 text-center leading-relaxed">
-              Akses portal hanya diberikan kepada akun yang telah terdaftar
-              di sistem sekolah.
+              Akses portal hanya diberikan kepada akun yang
+              telah terdaftar di sistem sekolah. Menu Resource
+              sementara disembunyikan selama proses integrasi.
             </p>
           </div>
-
         </div>
       </div>
     </div>
