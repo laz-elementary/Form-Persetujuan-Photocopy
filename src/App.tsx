@@ -5,18 +5,16 @@ import { TeacherSubmissionForm } from './components/TeacherSubmissionForm';
 import { StatusTracker } from './components/StatusTracker';
 import { KepsekDashboard } from './components/KepsekDashboard';
 import { AdminManagement } from './components/AdminManagement';
-import { AdminResource } from './components/AdminResource';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { supabase } from './lib/supabase';
 
-type AppTab = 'FORM' | 'TRACK' | 'KEPSEK' | 'ADMIN' | 'RESOURCE';
+type AppTab = 'FORM' | 'TRACK' | 'KEPSEK' | 'ADMIN';
 
 const TAB_PATHS: Record<AppTab, string> = {
   FORM: '/',
   TRACK: '/lacak-status',
   KEPSEK: '/portal-kepsek',
   ADMIN: '/admin-kelola',
-  RESOURCE: '/admin-resource',
 };
 
 const getTabFromPath = (): AppTab => {
@@ -27,8 +25,6 @@ const getTabFromPath = (): AppTab => {
       return 'KEPSEK';
     case '/admin-kelola':
       return 'ADMIN';
-    case '/admin-resource':
-      return 'RESOURCE';
     default:
       return 'FORM';
   }
@@ -97,11 +93,13 @@ export default function App() {
         title:
           data.role === 'KEPSEK'
             ? 'Kepala Sekolah'
-            : data.role === 'RESOURCE'
-              ? 'Admin Resource'
+            : data.role === 'WAKASEK'
+              ? 'Wakil Kepala Sekolah'
               : data.role === 'ADMIN'
                 ? 'Administrator SD'
-                : 'Guru',
+                : data.role === 'RESOURCE'
+                  ? 'Tim Resource'
+                  : 'Guru',
         avatar:
           authUser?.user_metadata?.avatar_url ||
           authUser?.user_metadata?.picture ||
@@ -122,9 +120,10 @@ export default function App() {
         currentTab === 'FORM' ||
         currentTab === 'TRACK' ||
         (currentTab === 'KEPSEK' &&
-          (staffUser.role === 'KEPSEK' || staffUser.role === 'ADMIN')) ||
-        (currentTab === 'ADMIN' && staffUser.role === 'ADMIN') ||
-        (currentTab === 'RESOURCE' && staffUser.role === 'RESOURCE');
+          (staffUser.role === 'KEPSEK' ||
+            staffUser.role === 'WAKASEK' ||
+            staffUser.role === 'ADMIN')) ||
+        (currentTab === 'ADMIN' && staffUser.role === 'ADMIN');
 
       if (!allowed) {
         navigateToTab('FORM', true);
@@ -229,13 +228,13 @@ export default function App() {
     setCurrentUser(user);
     setShowLoginModal(false);
 
-    if (user.role === 'KEPSEK') {
+    if (user.role === 'KEPSEK' || user.role === 'WAKASEK') {
       navigateToTab('KEPSEK');
     } else if (user.role === 'ADMIN') {
       navigateToTab('ADMIN');
-    } else if (user.role === 'RESOURCE') {
-      navigateToTab('RESOURCE');
     } else {
+      // RESOURCE sementara belum memiliki portal khusus
+      // selama proses integrasi masih berlangsung.
       navigateToTab('FORM');
     }
   };
@@ -290,14 +289,21 @@ export default function App() {
 
         {activeTab === 'KEPSEK' &&
           currentUser &&
-          (currentUser.role === 'KEPSEK' || currentUser.role === 'ADMIN') && (
+          (currentUser.role === 'KEPSEK' ||
+            currentUser.role === 'WAKASEK' ||
+            currentUser.role === 'ADMIN') && (
             <KepsekDashboard
               reviewerName={`${currentUser.name} ${
                 currentUser.role === 'KEPSEK'
                   ? '(Kepala SD Lazuardi)'
-                  : '(Administrator)'
+                  : currentUser.role === 'WAKASEK'
+                    ? '(Wakil Kepala SD Lazuardi)'
+                    : '(Administrator)'
               }`}
-              canReview={currentUser.role === 'KEPSEK'}
+              canReview={
+                currentUser.role === 'KEPSEK' ||
+                currentUser.role === 'WAKASEK'
+              }
               onRequestUpdated={fetchPendingCount}
             />
           )}
@@ -306,9 +312,6 @@ export default function App() {
           <AdminManagement />
         )}
 
-        {activeTab === 'RESOURCE' && currentUser?.role === 'RESOURCE' && (
-          <AdminResource />
-        )}
       </main>
 
       <footer className="bg-slate-900 text-slate-400 py-8 border-t border-slate-800 text-xs">
@@ -347,7 +350,7 @@ export default function App() {
                   onClick={() => setShowLoginModal(true)}
                   className="hover:text-emerald-400 transition-colors"
                 >
-                  Portal Pengelola & Kepala Sekolah
+                  Portal Persetujuan & Admin
                 </button>
               </>
             )}
