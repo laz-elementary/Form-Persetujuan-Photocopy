@@ -1,0 +1,4 @@
+GOOGLE_SERVICE_ACCOUNT_EMAIL=service-account-name@project-id.iam.gserviceaccount.com
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\nPASTE_KEY_DI_SINI\n-----END PRIVATE KEY-----\n
+GOOGLE_DRIVE_FOLDER_ID=1NV-hf7FEP3jrFPK1r7Cc2PiCtnw6DGaN
+APP_ORIGIN=https://form-persetujuan-photocopy.vercel.app
