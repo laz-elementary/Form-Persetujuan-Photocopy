@@ -4,7 +4,6 @@ import { supabase } from '../lib/supabase';
 import {
   Building2,
   CheckCircle2,
-  XCircle,
   Search,
   RefreshCw,
   FileText,
@@ -27,11 +26,12 @@ type ResourceRequest = Omit<PhotocopyRequest, 'status'> & {
 };
 
 type QueueView =
+  | 'READY'
+  | 'PRINTING'
   | 'TODAY'
   | 'TOMORROW'
   | 'UPCOMING'
   | 'HISTORY'
-  | 'REJECTED'
   | 'ALL';
 
 type SpecFilter =
@@ -48,7 +48,7 @@ export const AdminResource: React.FC = () => {
   const [requests, setRequests] = useState<ResourceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [queueView, setQueueView] = useState<QueueView>('TODAY');
+  const [queueView, setQueueView] = useState<QueueView>('READY');
   const [specFilter, setSpecFilter] = useState<SpecFilter>('ALL');
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
@@ -169,18 +169,19 @@ export const AdminResource: React.FC = () => {
   // COUNTS
   // =====================================================
 
+  const readyCount = requests.filter(
+    (r) => r.status === 'DISETUJUI'
+  ).length;
+
+  const printingCount = requests.filter(
+    (r) => r.status === 'SEDANG_DICETAK'
+  ).length;
+
   const todayCount = requests.filter(isTodayJob).length;
   const tomorrowCount = requests.filter(isTomorrowJob).length;
   const upcomingCount = requests.filter(isUpcomingJob).length;
   const historyCount = requests.filter(
     (r) => r.status === 'SELESAI'
-  ).length;
-  const rejectedCount = requests.filter(
-    (r) => r.status === 'DITOLAK'
-  ).length;
-
-  const printingCount = requests.filter(
-    (r) => r.status === 'SEDANG_DICETAK'
   ).length;
 
   const queueSheets = requests
@@ -231,7 +232,11 @@ export const AdminResource: React.FC = () => {
     const result = requests.filter((request) => {
       let matchesView = true;
 
-      if (queueView === 'TODAY') {
+      if (queueView === 'READY') {
+        matchesView = request.status === 'DISETUJUI';
+      } else if (queueView === 'PRINTING') {
+        matchesView = request.status === 'SEDANG_DICETAK';
+      } else if (queueView === 'TODAY') {
         matchesView = isTodayJob(request);
       } else if (queueView === 'TOMORROW') {
         matchesView = isTomorrowJob(request);
@@ -239,8 +244,6 @@ export const AdminResource: React.FC = () => {
         matchesView = isUpcomingJob(request);
       } else if (queueView === 'HISTORY') {
         matchesView = request.status === 'SELESAI';
-      } else if (queueView === 'REJECTED') {
-        matchesView = request.status === 'DITOLAK';
       }
 
       let matchesSpec = true;
@@ -359,13 +362,6 @@ export const AdminResource: React.FC = () => {
   const handleOpenDocument = async (
     request: ResourceRequest
   ) => {
-    if (request.status === 'DITOLAK') {
-      setErrorMsg(
-        'Pengajuan yang ditolak tidak masuk proses cetak Resource.'
-      );
-      return;
-    }
-
     if (!request.fileUrl) {
       setErrorMsg('Dokumen tidak tersedia.');
       return;
@@ -443,7 +439,7 @@ export const AdminResource: React.FC = () => {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 border border-green-200 text-green-700 rounded-lg text-[10px] font-bold">
           <CheckCircle2 className="w-3 h-3" />
-          SIAP DICETAK
+          ACC • SIAP DIPROSES
         </span>
       );
     }
@@ -467,19 +463,19 @@ export const AdminResource: React.FC = () => {
     }
 
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-100 border border-red-200 text-red-700 rounded-lg text-[10px] font-bold">
-        <XCircle className="w-3 h-3" />
-        DITOLAK
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-bold">
+        STATUS TIDAK TERSEDIA
       </span>
     );
   };
 
   const queueViewLabel = {
+    READY: 'Sudah ACC • Siap Diproses',
+    PRINTING: 'Sedang Dicetak',
     TODAY: 'Pekerjaan Hari Ini',
     TOMORROW: 'Pekerjaan Besok',
     UPCOMING: 'Pekerjaan Mendatang',
     HISTORY: 'Riwayat Fotokopi',
-    REJECTED: 'Pengajuan Ditolak',
     ALL: 'Semua Data Resource',
   }[queueView];
 
@@ -498,7 +494,7 @@ export const AdminResource: React.FC = () => {
           </h2>
 
           <p className="text-xs text-slate-300 mt-1 max-w-2xl">
-            Pengajuan yang disetujui otomatis masuk antrean cetak. Resource dapat memproses pekerjaan dan memantau jumlah kertas yang sudah digunakan.
+            Hanya pengajuan yang sudah di-ACC Kepala Sekolah / Wakil Kepala Sekolah yang masuk ke portal ini. Resource dapat membuka file, memproses fotokopi, lalu menandai pekerjaan selesai.
           </p>
         </div>
 
@@ -545,7 +541,25 @@ export const AdminResource: React.FC = () => {
       )}
 
       {/* MAIN QUEUE TABS */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+        <QueueCard
+          title="Sudah ACC"
+          value={readyCount}
+          icon={<ShieldCheck className="w-5 h-5" />}
+          active={queueView === 'READY'}
+          onClick={() => setQueueView('READY')}
+          className="bg-green-50 border-green-200 text-green-800"
+        />
+
+        <QueueCard
+          title="Sedang Dicetak"
+          value={printingCount}
+          icon={<Printer className="w-5 h-5" />}
+          active={queueView === 'PRINTING'}
+          onClick={() => setQueueView('PRINTING')}
+          className="bg-blue-50 border-blue-200 text-blue-800"
+        />
+
         <QueueCard
           title="Hari Ini"
           value={todayCount}
@@ -561,7 +575,7 @@ export const AdminResource: React.FC = () => {
           icon={<CalendarClock className="w-5 h-5" />}
           active={queueView === 'TOMORROW'}
           onClick={() => setQueueView('TOMORROW')}
-          className="bg-blue-50 border-blue-200 text-blue-800"
+          className="bg-indigo-50 border-indigo-200 text-indigo-800"
         />
 
         <QueueCard
@@ -570,7 +584,7 @@ export const AdminResource: React.FC = () => {
           icon={<CalendarRange className="w-5 h-5" />}
           active={queueView === 'UPCOMING'}
           onClick={() => setQueueView('UPCOMING')}
-          className="bg-indigo-50 border-indigo-200 text-indigo-800"
+          className="bg-violet-50 border-violet-200 text-violet-800"
         />
 
         <QueueCard
@@ -580,15 +594,6 @@ export const AdminResource: React.FC = () => {
           active={queueView === 'HISTORY'}
           onClick={() => setQueueView('HISTORY')}
           className="bg-slate-50 border-slate-200 text-slate-800"
-        />
-
-        <QueueCard
-          title="Ditolak"
-          value={rejectedCount}
-          icon={<XCircle className="w-5 h-5" />}
-          active={queueView === 'REJECTED'}
-          onClick={() => setQueueView('REJECTED')}
-          className="bg-red-50 border-red-200 text-red-800"
         />
       </div>
 
@@ -791,6 +796,20 @@ export const AdminResource: React.FC = () => {
                     </span>
                   </div>
 
+                  {request.status === 'DISETUJUI' &&
+                    request.reviewedBy && (
+                      <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-[10px] text-green-800">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>
+                          <strong>Sudah ACC</strong> oleh {request.reviewedBy}
+                          {request.reviewedAt
+                            ? ` • ${formatDate(request.reviewedAt)}`
+                            : ''}
+                          {' • '}siap diproses Resource
+                        </span>
+                      </div>
+                    )}
+
                   {request.status === 'SEDANG_DICETAK' &&
                     request.printedBy && (
                       <div className="text-[10px] text-blue-700 mt-2">
@@ -844,7 +863,7 @@ export const AdminResource: React.FC = () => {
                       className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
                     >
                       <Play className="w-3.5 h-3.5" />
-                      Mulai Cetak
+                      Proses Fotokopi
                     </button>
                   )}
 
@@ -939,7 +958,7 @@ export const AdminResource: React.FC = () => {
                 <div className="bg-green-50 border border-green-200 rounded-xl p-4">
                   <div className="flex items-center gap-2 text-green-800 font-bold text-xs">
                     <ShieldCheck className="w-4 h-4" />
-                    Keputusan Kepala Sekolah
+                    Sudah Disetujui Kepsek / Wakasek
                   </div>
                   <div className="text-[11px] text-green-700 mt-2">
                     Oleh:{' '}
@@ -968,19 +987,7 @@ export const AdminResource: React.FC = () => {
                   />
                 )}
 
-              {selectedRequest.status === 'DITOLAK' && (
-                <DetailBox
-                  label="Alasan Penolakan"
-                  value={
-                    selectedRequest.rejectionReason ||
-                    'Tidak ada alasan tambahan.'
-                  }
-                  danger
-                />
-              )}
-
-              {selectedRequest.status !== 'DITOLAK' && (
-                <button
+              <button
                   type="button"
                   onClick={() =>
                     handleOpenDocument(selectedRequest)
@@ -993,7 +1000,6 @@ export const AdminResource: React.FC = () => {
                     ? 'Buka File Riwayat Fotokopi'
                     : 'Buka Dokumen untuk Dicetak'}
                 </button>
-              )}
 
               {selectedRequest.status === 'DISETUJUI' && (
                 <button
@@ -1008,7 +1014,7 @@ export const AdminResource: React.FC = () => {
                   className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   <Play className="w-4 h-4" />
-                  Mulai Proses Fotokopi
+                  Proses Fotokopi Sekarang
                 </button>
               )}
 
