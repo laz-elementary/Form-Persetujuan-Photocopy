@@ -155,6 +155,9 @@ export default async function handler(req: any, res: any) {
           'Content-Type': 'application/json; charset=UTF-8',
           'X-Upload-Content-Type': mimeType,
           'X-Upload-Content-Length': String(fileSize),
+          // Penting untuk resumable upload yang dilanjutkan langsung
+          // dari browser. Google menggunakan Origin sesi awal untuk CORS.
+          Origin: origin || allowedOrigin,
         },
         body: JSON.stringify({
           name: driveName,
