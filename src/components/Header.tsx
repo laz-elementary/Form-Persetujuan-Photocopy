@@ -10,7 +10,7 @@ import {
   Building2,
 } from 'lucide-react';
 
-type HeaderTab = 'FORM' | 'TRACK' | 'KEPSEK' | 'ADMIN';
+type HeaderTab = 'FORM' | 'TRACK' | 'KEPSEK' | 'ADMIN' | 'RESOURCE';
 
 interface HeaderProps {
   activeTab: HeaderTab;
@@ -113,6 +113,20 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 )}
 
+                {(currentUser.role === 'RESOURCE' || currentUser.role === 'ADMIN') && (
+                  <button
+                    onClick={() => setActiveTab('RESOURCE')}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      activeTab === 'RESOURCE'
+                        ? 'bg-white text-blue-700 shadow-sm border border-slate-200/60'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                    }`}
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>Kelola Resource</span>
+                  </button>
+                )}
+
               </>
             )}
           </nav>
@@ -182,6 +196,16 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Building2 className="w-4 h-4" />
             <span>Admin</span>
+          </button>
+        )}
+
+        {currentUser && (currentUser.role === 'RESOURCE' || currentUser.role === 'ADMIN') && (
+          <button
+            onClick={() => setActiveTab('RESOURCE')}
+            className={`flex flex-col items-center gap-1 px-3 py-1 rounded-lg ${activeTab === 'RESOURCE' ? 'text-blue-600 font-bold' : 'text-slate-600'}`}
+          >
+            <Printer className="w-4 h-4" />
+            <span>Resource</span>
           </button>
         )}
 
