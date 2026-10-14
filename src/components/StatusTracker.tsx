@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { uploadFileToDrive } from '../lib/driveUpload';
 import {
   Clock,
   CheckCircle2,
@@ -561,97 +562,78 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
     setErrorMsg('');
     setSuccessMsg('');
 
-    let uploadedPath: string | null = null;
-
     try {
+      const normalizedEmail = revisionForm.email.trim().toLowerCase();
+
+      // Verifikasi email/status dulu sebelum mengunggah file baru ke Drive.
+      const { data: canRevise, error: verifyError } = await supabase.rpc(
+        'teacher_revision_check',
+        {
+          p_request_id: revisionRequest.id,
+          p_teacher_email: normalizedEmail,
+        }
+      );
+
+      if (verifyError) throw verifyError;
+      if (!canRevise) {
+        throw new Error('Email guru tidak sesuai dengan pengajuan ini.');
+      }
+
       let fileName: string | null = null;
       let fileSize: string | null = null;
       let fileType: string | null = null;
       let fileUrl: string | null = null;
+      let driveFileId: string | null = null;
+      let driveFileUrl: string | null = null;
 
       if (replacementFile) {
-        if (
-          replacementFile.size >
-          20 * 1024 * 1024
-        ) {
-          throw new Error(
-            'Ukuran file maksimal 20 MB.'
-          );
+        if (replacementFile.size > 25 * 1024 * 1024) {
+          throw new Error('Ukuran file maksimal 25 MB.');
         }
 
-        let safeName = replacementFile.name
-          .replace(/\s+/g, '_')
-          .replace(/[^a-zA-Z0-9._-]/g, '');
+        const driveFile = await uploadFileToDrive(replacementFile, {
+          trackingId: revisionRequest.id,
+          teacherName: revisionRequest.teacherName,
+          title: `${revisionForm.title.trim()} - REVISI`,
+        });
 
-        if (!safeName) safeName = 'document';
-
-        uploadedPath = `${
-          revisionRequest.id
-        }/revision-${Date.now()}-${safeName}`;
-
-        const { error: uploadError } =
-          await supabase.storage
-            .from('photocopy-files')
-            .upload(
-              uploadedPath,
-              replacementFile,
-              {
-                cacheControl: '3600',
-                upsert: false,
-                contentType:
-                  replacementFile.type ||
-                  'application/octet-stream',
-              }
-            );
-
-        if (uploadError) throw uploadError;
-
-        fileName = replacementFile.name;
-        fileSize = `${(
-          replacementFile.size /
-          (1024 * 1024)
-        ).toFixed(1)} MB`;
-        fileType =
-          replacementFile.type ||
-          'application/octet-stream';
-        fileUrl = uploadedPath;
+        fileName = driveFile.fileName;
+        fileSize = driveFile.fileSize;
+        fileType = driveFile.fileType;
+        fileUrl = driveFile.fileUrl;
+        driveFileId = driveFile.fileId;
+        driveFileUrl = driveFile.fileUrl;
       }
 
       const { error } = await supabase.rpc(
         'teacher_resubmit_revision',
         {
           p_request_id: revisionRequest.id,
-          p_teacher_email:
-            revisionForm.email.trim(),
-          p_subject_class:
-            revisionForm.subjectClass.trim(),
+          p_teacher_email: normalizedEmail,
+          p_subject_class: revisionForm.subjectClass.trim(),
           p_title: revisionForm.title.trim(),
-          p_pages_count:
-            revisionForm.pagesCount,
-          p_copies_count:
-            revisionForm.copiesCount,
+          p_pages_count: revisionForm.pagesCount,
+          p_copies_count: revisionForm.copiesCount,
           p_total_sheets: revisionSheets,
-          p_paper_size:
-            revisionForm.paperSize,
-          p_color_option:
-            revisionForm.colorOption,
-          p_print_side:
-            revisionForm.printSide,
+          p_paper_size: revisionForm.paperSize,
+          p_color_option: revisionForm.colorOption,
+          p_print_side: revisionForm.printSide,
           p_urgency: revisionForm.urgency,
-          p_target_date:
-            revisionForm.targetDate,
+          p_target_date: revisionForm.targetDate,
           p_notes: null,
           p_file_name: fileName,
           p_file_size: fileSize,
           p_file_type: fileType,
           p_file_url: fileUrl,
+          p_drive_file_id: driveFileId,
+          p_drive_file_url: driveFileUrl,
         }
       );
 
       if (error) throw error;
 
       setSuccessMsg(
-        `${revisionRequest.id} berhasil diperbaiki dan dikirim ulang ke Kepala Sekolah.`
+        `${revisionRequest.id} berhasil diperbaiki dan dikirim ulang ke Portal Persetujuan.`
       );
 
       setRevisionRequest(null);
@@ -659,12 +641,6 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
       await fetchHistory();
       setFilter('MENUNGGU');
     } catch (err: any) {
-      if (uploadedPath) {
-        await supabase.storage
-          .from('photocopy-files')
-          .remove([uploadedPath]);
-      }
-
       console.error('Resubmit revision error:', err);
 
       const raw = String(err?.message || '');
