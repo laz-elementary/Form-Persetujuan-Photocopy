@@ -19,6 +19,23 @@ const TAB_PATHS: Record<AppTab, string> = {
   RESOURCE: '/admin-resource',
 };
 
+
+const normalizeRole = (role: unknown): UserAccount['role'] | undefined => {
+  const normalized = String(role ?? '').trim().toUpperCase();
+
+  if (
+    normalized === 'GURU' ||
+    normalized === 'KEPSEK' ||
+    normalized === 'WAKASEK' ||
+    normalized === 'ADMIN' ||
+    normalized === 'RESOURCE'
+  ) {
+    return normalized as UserAccount['role'];
+  }
+
+  return undefined;
+};
+
 const getTabFromPath = (): AppTab => {
   switch (window.location.pathname) {
     case '/lacak-status':
@@ -36,12 +53,23 @@ const getTabFromPath = (): AppTab => {
 
 const canAccess = (tab: AppTab, role?: UserAccount['role']) => {
   if (tab === 'FORM' || tab === 'TRACK') return true;
-  if (!role) return false;
+
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return false;
+
   if (tab === 'KEPSEK') {
-    return role === 'KEPSEK' || role === 'WAKASEK' || role === 'ADMIN';
+    return (
+      normalizedRole === 'KEPSEK' ||
+      normalizedRole === 'WAKASEK' ||
+      normalizedRole === 'ADMIN'
+    );
   }
-  if (tab === 'ADMIN') return role === 'ADMIN';
-  if (tab === 'RESOURCE') return role === 'RESOURCE' || role === 'ADMIN';
+
+  if (tab === 'ADMIN') return normalizedRole === 'ADMIN';
+  if (tab === 'RESOURCE') {
+    return normalizedRole === 'RESOURCE' || normalizedRole === 'ADMIN';
+  }
+
   return false;
 };
 
@@ -110,20 +138,31 @@ export default function App() {
         return;
       }
 
+      const normalizedRole = normalizeRole(data.role);
+
+      if (!normalizedRole) {
+        await supabase.auth.signOut();
+        setCurrentUser(null);
+        setActiveTab('FORM');
+        window.history.replaceState({}, '', '/');
+        alert(`Role staff tidak dikenali: ${String(data.role ?? '-')}`);
+        return;
+      }
+
       const staffUser: UserAccount = {
         id: data.id,
         name: data.name,
         email: data.email,
         username: data.email.split('@')[0],
-        role: data.role as UserAccount['role'],
+        role: normalizedRole,
         title:
-          data.role === 'KEPSEK'
+          normalizedRole === 'KEPSEK'
             ? 'Kepala Sekolah'
-            : data.role === 'WAKASEK'
+            : normalizedRole === 'WAKASEK'
               ? 'Wakil Kepala Sekolah'
-              : data.role === 'RESOURCE'
+              : normalizedRole === 'RESOURCE'
                 ? 'Tim Resource'
-                : data.role === 'ADMIN'
+                : normalizedRole === 'ADMIN'
                   ? 'Administrator SD'
                   : 'Guru',
         avatar:

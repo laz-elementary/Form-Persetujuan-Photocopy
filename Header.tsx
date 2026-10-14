@@ -29,14 +29,18 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   pendingCount,
 }) => {
-  const canApproval =
-    currentUser?.role === 'KEPSEK' ||
-    currentUser?.role === 'WAKASEK' ||
-    currentUser?.role === 'ADMIN';
+  const normalizedRole = String(currentUser?.role ?? '')
+    .trim()
+    .toUpperCase();
 
-  const canAdmin = currentUser?.role === 'ADMIN';
+  const canApproval =
+    normalizedRole === 'KEPSEK' ||
+    normalizedRole === 'WAKASEK' ||
+    normalizedRole === 'ADMIN';
+
+  const canAdmin = normalizedRole === 'ADMIN';
   const canResource =
-    currentUser?.role === 'RESOURCE' || currentUser?.role === 'ADMIN';
+    normalizedRole === 'RESOURCE' || normalizedRole === 'ADMIN';
 
   const navButton = (tab: HeaderTab, activeClass = 'text-blue-700') =>
     `flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
@@ -76,6 +80,9 @@ export const Header: React.FC<HeaderProps> = ({
                 </h1>
                 <span className="hidden sm:inline-block px-2 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-blue-50 text-blue-700 rounded border border-blue-200">
                   Resmi
+                </span>
+                <span className="hidden lg:inline-block px-1.5 py-0.5 text-[9px] font-bold bg-slate-100 text-slate-500 rounded border border-slate-200">
+                  v3.2
                 </span>
               </div>
               <p className="text-xs text-slate-500 hidden sm:block">
