@@ -7,6 +7,7 @@ import {
   PhotocopyRequest,
 } from '../types';
 import { supabase } from '../lib/supabase';
+import { DRIVE_FOLDER_URL, uploadFileToDrive } from '../lib/driveUpload';
 import {
   FileUp,
   Calculator,
@@ -30,8 +31,7 @@ interface FormProps {
   onGoToTrack: (trackingCode: string) => void;
 }
 
-export const LAZUARDI_DRIVE_FOLDER_URL =
-  'https://drive.google.com/drive/folders/1NV-hf7FEP3jrFPK1r7Cc2PiCtnw6DGaN?usp=drive_link';
+export const LAZUARDI_DRIVE_FOLDER_URL = DRIVE_FOLDER_URL;
 
 export const TeacherSubmissionForm: React.FC<FormProps> = ({
   onSubmitted,
@@ -301,10 +301,6 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
 
     setIsSubmitting(true);
 
-    let uploadedStoragePath:
-      | string
-      | null = null;
-
     try {
       // ===============================================
       // TRACKING ID
@@ -340,65 +336,25 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
       let finalFileName = '';
       let finalFileSize = '';
       let finalFileType = '';
+      let driveFileId: string | null = null;
+      let driveFileUrl: string | null = null;
 
       if (
         docSourceType === 'UPLOAD' &&
         file
       ) {
-        let safeFileName =
-          file.name
-            .replace(/\s+/g, '_')
-            .replace(
-              /[^a-zA-Z0-9._-]/g,
-              ''
-            );
+        const driveFile = await uploadFileToDrive(file, {
+          trackingId: trackingCode,
+          teacherName: teacherName.trim(),
+          title: title.trim(),
+        });
 
-        if (!safeFileName) {
-          safeFileName = 'document';
-        }
-
-        const storagePath =
-          `${trackingCode}/${safeFileName}`;
-
-        const { error: uploadError } =
-          await supabase.storage
-            .from('photocopy-files')
-            .upload(
-              storagePath,
-              file,
-              {
-                cacheControl: '3600',
-                upsert: false,
-                contentType:
-                  file.type ||
-                  'application/octet-stream',
-              }
-            );
-
-        if (uploadError) {
-          throw new Error(
-            `Gagal mengunggah dokumen: ${uploadError.message}`
-          );
-        }
-
-        uploadedStoragePath =
-          storagePath;
-
-        finalFileUrl =
-          storagePath;
-
-        finalFileName =
-          file.name;
-
-        finalFileSize =
-          `${(
-            file.size /
-            (1024 * 1024)
-          ).toFixed(1)} MB`;
-
-        finalFileType =
-          file.type ||
-          'application/octet-stream';
+        driveFileId = driveFile.fileId;
+        driveFileUrl = driveFile.fileUrl;
+        finalFileUrl = driveFile.fileUrl;
+        finalFileName = driveFile.fileName;
+        finalFileSize = driveFile.fileSize;
+        finalFileType = driveFile.fileType;
       } else {
         let formattedUrl =
           fileUrlInput.trim();
@@ -465,6 +421,15 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
             drive_folder_url:
               LAZUARDI_DRIVE_FOLDER_URL,
 
+            drive_file_id:
+              driveFileId,
+
+            drive_file_url:
+              driveFileUrl,
+
+            drive_uploaded_at:
+              driveFileId ? new Date().toISOString() : null,
+
             pages_count:
               pagesCount,
 
@@ -497,16 +462,8 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
           });
 
       if (insertError) {
-        if (uploadedStoragePath) {
-          await supabase.storage
-            .from('photocopy-files')
-            .remove([
-              uploadedStoragePath,
-            ]);
-        }
-
         throw new Error(
-          `Gagal menyimpan pengajuan: ${insertError.message}`
+          `File sudah terunggah ke Google Drive, tetapi data pengajuan gagal disimpan: ${insertError.message}`
         );
       }
 
@@ -540,6 +497,15 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
 
         driveFolderUrl:
           LAZUARDI_DRIVE_FOLDER_URL,
+
+        driveFileId:
+          driveFileId || undefined,
+
+        driveFileUrl:
+          driveFileUrl || undefined,
+
+        driveUploadedAt:
+          driveFileId ? new Date().toISOString() : undefined,
 
         pagesCount,
         copiesCount,
@@ -637,7 +603,7 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
             </h2>
 
             <p className="text-sm text-green-700 mt-2">
-              Pengajuan diteruskan ke Portal Kepala Sekolah.
+              Dokumen tersimpan di Google Drive dan pengajuan diteruskan ke Portal Persetujuan.
             </p>
           </div>
 
@@ -866,10 +832,10 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
 
                 <div>
                   <div className="font-bold text-xs">
-                    Google Drive Repository Bahan Ajar
+                    Google Drive Dokumen Photocopy SD
                   </div>
                   <p className="text-[11px] text-slate-300 mt-0.5">
-                    Bisa upload langsung atau menggunakan link dokumen.
+                    File yang diunggah dari form akan disimpan langsung ke folder Google Drive sekolah.
                   </p>
                 </div>
               </div>
