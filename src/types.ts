@@ -7,11 +7,8 @@ export type RequestStatus =
   | 'SELESAI';
 
 export type PaperSize = 'A4' | 'F4' | 'A3';
-
 export type ColorOption = 'BW' | 'COLOR';
-
 export type PrintSide = 'SINGLE' | 'DOUBLE';
-
 export type Urgency = 'NORMAL' | 'TINGGI';
 
 export type UserRole =
@@ -34,6 +31,9 @@ export interface PhotocopyRequest {
   fileDataUrl?: string;
   fileUrl?: string;
   driveFolderUrl?: string;
+  driveFileId?: string;
+  driveFileUrl?: string;
+  driveUploadedAt?: string;
   pagesCount: number;
   copiesCount: number;
   totalSheets: number;
@@ -49,6 +49,11 @@ export interface PhotocopyRequest {
   reviewedBy?: string;
   rejectionReason?: string;
   approvalNotes?: string;
+  revisionNotes?: string;
+  revisionRequestedAt?: string;
+  revisionRequestedBy?: string;
+  revisionCount?: number;
+  resubmittedAt?: string;
   printedAt?: string;
   printedBy?: string;
   completedAt?: string;
