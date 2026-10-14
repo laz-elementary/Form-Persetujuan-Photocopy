@@ -5,16 +5,18 @@ import { TeacherSubmissionForm } from './components/TeacherSubmissionForm';
 import { StatusTracker } from './components/StatusTracker';
 import { KepsekDashboard } from './components/KepsekDashboard';
 import { AdminManagement } from './components/AdminManagement';
+import { AdminResource } from './components/AdminResource';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { supabase } from './lib/supabase';
 
-type AppTab = 'FORM' | 'TRACK' | 'KEPSEK' | 'ADMIN';
+type AppTab = 'FORM' | 'TRACK' | 'KEPSEK' | 'ADMIN' | 'RESOURCE';
 
 const TAB_PATHS: Record<AppTab, string> = {
   FORM: '/',
   TRACK: '/lacak-status',
   KEPSEK: '/portal-kepsek',
   ADMIN: '/admin-kelola',
+  RESOURCE: '/admin-resource',
 };
 
 const getTabFromPath = (): AppTab => {
@@ -25,6 +27,8 @@ const getTabFromPath = (): AppTab => {
       return 'KEPSEK';
     case '/admin-kelola':
       return 'ADMIN';
+    case '/admin-resource':
+      return 'RESOURCE';
     default:
       return 'FORM';
   }
@@ -123,7 +127,9 @@ export default function App() {
           (staffUser.role === 'KEPSEK' ||
             staffUser.role === 'WAKASEK' ||
             staffUser.role === 'ADMIN')) ||
-        (currentTab === 'ADMIN' && staffUser.role === 'ADMIN');
+        (currentTab === 'ADMIN' && staffUser.role === 'ADMIN') ||
+        (currentTab === 'RESOURCE' &&
+          (staffUser.role === 'RESOURCE' || staffUser.role === 'ADMIN'));
 
       if (!allowed) {
         navigateToTab('FORM', true);
@@ -232,9 +238,9 @@ export default function App() {
       navigateToTab('KEPSEK');
     } else if (user.role === 'ADMIN') {
       navigateToTab('ADMIN');
+    } else if (user.role === 'RESOURCE') {
+      navigateToTab('RESOURCE');
     } else {
-      // RESOURCE sementara belum memiliki portal khusus
-      // selama proses integrasi masih berlangsung.
       navigateToTab('FORM');
     }
   };
@@ -311,6 +317,12 @@ export default function App() {
         {activeTab === 'ADMIN' && currentUser?.role === 'ADMIN' && (
           <AdminManagement />
         )}
+
+        {activeTab === 'RESOURCE' &&
+          currentUser &&
+          (currentUser.role === 'RESOURCE' || currentUser.role === 'ADMIN') && (
+            <AdminResource />
+          )}
 
       </main>
 
