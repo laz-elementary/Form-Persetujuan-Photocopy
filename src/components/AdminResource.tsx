@@ -2,37 +2,25 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { PhotocopyRequest } from '../types';
 import { supabase } from '../lib/supabase';
 import {
+  AlertCircle,
   Building2,
   CheckCircle2,
-  XCircle,
-  Search,
-  RefreshCw,
-  FileText,
   ExternalLink,
-  AlertCircle,
-  X,
-  Printer,
-  Play,
+  FileText,
   History,
+  Play,
+  Printer,
+  RefreshCw,
+  Search,
   ShieldCheck,
-  CalendarDays,
-  CalendarClock,
-  CalendarRange,
-  Clock3,
-  Eye,
+  X,
 } from 'lucide-react';
 
 type ResourceRequest = Omit<PhotocopyRequest, 'status'> & {
   status: string;
 };
 
-type QueueView =
-  | 'TODAY'
-  | 'TOMORROW'
-  | 'UPCOMING'
-  | 'HISTORY'
-  | 'REJECTED'
-  | 'ALL';
+type StatusFilter = 'ALL' | 'DISETUJUI' | 'SEDANG_DICETAK' | 'SELESAI';
 
 type SpecFilter =
   | 'ALL'
@@ -44,11 +32,13 @@ type SpecFilter =
   | 'SINGLE'
   | 'DOUBLE';
 
+const RESOURCE_STATUSES = ['DISETUJUI', 'SEDANG_DICETAK', 'SELESAI'];
+
 export const AdminResource: React.FC = () => {
   const [requests, setRequests] = useState<ResourceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [queueView, setQueueView] = useState<QueueView>('TODAY');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [specFilter, setSpecFilter] = useState<SpecFilter>('ALL');
   const [selectedRequest, setSelectedRequest] =
     useState<ResourceRequest | null>(null);
@@ -101,12 +91,15 @@ export const AdminResource: React.FC = () => {
 
       if (error) throw error;
 
-      setRequests((data || []).map(mapRequest));
+      const mapped = (data || [])
+        .map(mapRequest)
+        .filter((request) => RESOURCE_STATUSES.includes(request.status));
+
+      setRequests(mapped);
     } catch (err: any) {
       console.error('Resource load error:', err);
       setErrorMsg(
-        err?.message ||
-          'Gagal memuat antrean fotokopi untuk Resource.'
+        err?.message || 'Gagal memuat rekap fotokopi Resource.'
       );
     } finally {
       setLoading(false);
@@ -117,155 +110,99 @@ export const AdminResource: React.FC = () => {
     fetchRequests();
   }, []);
 
-  // =====================================================
-  // DATE HELPERS - ASIA/JAKARTA
-  // =====================================================
-
-  const dateKeyInJakarta = (date: Date) =>
-    new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Jakarta',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(date);
-
-  const todayKey = dateKeyInJakarta(new Date());
-  const tomorrowKey = dateKeyInJakarta(
-    new Date(Date.now() + 24 * 60 * 60 * 1000)
-  );
-
-  const isActivePrintJob = (request: ResourceRequest) =>
-    request.status === 'DISETUJUI' ||
-    request.status === 'SEDANG_DICETAK';
-
-  const isOverdue = (request: ResourceRequest) =>
-    isActivePrintJob(request) &&
-    !!request.targetDate &&
-    request.targetDate < todayKey;
-
-  const isTodayJob = (request: ResourceRequest) =>
-    isActivePrintJob(request) &&
-    !!request.targetDate &&
-    request.targetDate <= todayKey;
-
-  const isTomorrowJob = (request: ResourceRequest) =>
-    isActivePrintJob(request) &&
-    request.targetDate === tomorrowKey;
-
-  const isUpcomingJob = (request: ResourceRequest) =>
-    isActivePrintJob(request) &&
-    !!request.targetDate &&
-    request.targetDate > tomorrowKey;
-
-  // =====================================================
-  // COUNTS
-  // =====================================================
-
-  const todayCount = requests.filter(isTodayJob).length;
-  const tomorrowCount = requests.filter(isTomorrowJob).length;
-  const upcomingCount = requests.filter(isUpcomingJob).length;
-  const historyCount = requests.filter(
-    (r) => r.status === 'SELESAI'
-  ).length;
-  const rejectedCount = requests.filter(
-    (r) => r.status === 'DITOLAK'
+  const approvedCount = requests.filter(
+    (r) => r.status === 'DISETUJUI'
   ).length;
 
   const printingCount = requests.filter(
     (r) => r.status === 'SEDANG_DICETAK'
   ).length;
 
-  const queueSheets = requests
-    .filter(isActivePrintJob)
-    .reduce(
-      (total, request) => total + (request.totalSheets || 0),
-      0
-    );
+  const completedCount = requests.filter(
+    (r) => r.status === 'SELESAI'
+  ).length;
 
-  // =====================================================
-  // FILTER & SORT
-  // =====================================================
+  const usedSheets = requests
+    .filter((r) => r.status === 'SELESAI')
+    .reduce((total, request) => total + (request.totalSheets || 0), 0);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
 
-    const result = requests.filter((request) => {
-      let matchesView = true;
+    const priority: Record<string, number> = {
+      DISETUJUI: 1,
+      SEDANG_DICETAK: 2,
+      SELESAI: 3,
+    };
 
-      if (queueView === 'TODAY') {
-        matchesView = isTodayJob(request);
-      } else if (queueView === 'TOMORROW') {
-        matchesView = isTomorrowJob(request);
-      } else if (queueView === 'UPCOMING') {
-        matchesView = isUpcomingJob(request);
-      } else if (queueView === 'HISTORY') {
-        matchesView = request.status === 'SELESAI';
-      } else if (queueView === 'REJECTED') {
-        matchesView = request.status === 'DITOLAK';
-      }
+    return requests
+      .filter((request) => {
+        const matchesStatus =
+          statusFilter === 'ALL' || request.status === statusFilter;
 
-      let matchesSpec = true;
+        let matchesSpec = true;
 
-      if (specFilter === 'A4' || specFilter === 'F4' || specFilter === 'A3') {
-        matchesSpec = request.paperSize === specFilter;
-      } else if (specFilter === 'BW' || specFilter === 'COLOR') {
-        matchesSpec = request.colorOption === specFilter;
-      } else if (specFilter === 'SINGLE' || specFilter === 'DOUBLE') {
-        matchesSpec = request.printSide === specFilter;
-      }
+        if (
+          specFilter === 'A4' ||
+          specFilter === 'F4' ||
+          specFilter === 'A3'
+        ) {
+          matchesSpec = request.paperSize === specFilter;
+        } else if (specFilter === 'BW' || specFilter === 'COLOR') {
+          matchesSpec = request.colorOption === specFilter;
+        } else if (
+          specFilter === 'SINGLE' ||
+          specFilter === 'DOUBLE'
+        ) {
+          matchesSpec = request.printSide === specFilter;
+        }
 
-      const matchesSearch =
-        !q ||
-        request.id.toLowerCase().includes(q) ||
-        request.teacherName.toLowerCase().includes(q) ||
-        request.subjectClass.toLowerCase().includes(q) ||
-        request.title.toLowerCase().includes(q);
+        const matchesSearch =
+          !q ||
+          request.id.toLowerCase().includes(q) ||
+          request.teacherName.toLowerCase().includes(q) ||
+          request.subjectClass.toLowerCase().includes(q) ||
+          request.title.toLowerCase().includes(q);
 
-      return matchesView && matchesSpec && matchesSearch;
+        return matchesStatus && matchesSpec && matchesSearch;
+      })
+      .sort((a, b) => {
+        const statusDiff =
+          (priority[a.status] || 99) - (priority[b.status] || 99);
+
+        if (statusDiff !== 0) return statusDiff;
+
+        if (a.status === 'SELESAI' && b.status === 'SELESAI') {
+          return String(b.completedAt || b.submittedAt).localeCompare(
+            String(a.completedAt || a.submittedAt)
+          );
+        }
+
+        if (a.urgency === 'TINGGI' && b.urgency !== 'TINGGI') return -1;
+        if (b.urgency === 'TINGGI' && a.urgency !== 'TINGGI') return 1;
+
+        return String(a.targetDate || '').localeCompare(
+          String(b.targetDate || '')
+        );
+      });
+  }, [requests, search, statusFilter, specFilter]);
+
+  const formatDate = (date?: string) => {
+    if (!date) return '-';
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return new Date(`${date}T00:00:00`).toLocaleDateString('id-ID', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+    }
+
+    return new Date(date).toLocaleString('id-ID', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
     });
-
-    return result.sort((a, b) => {
-      // Sedang dicetak selalu di atas.
-      if (
-        a.status === 'SEDANG_DICETAK' &&
-        b.status !== 'SEDANG_DICETAK'
-      ) {
-        return -1;
-      }
-
-      if (
-        b.status === 'SEDANG_DICETAK' &&
-        a.status !== 'SEDANG_DICETAK'
-      ) {
-        return 1;
-      }
-
-      // Setelah itu prioritas tinggi.
-      if (a.urgency === 'TINGGI' && b.urgency !== 'TINGGI') {
-        return -1;
-      }
-
-      if (b.urgency === 'TINGGI' && a.urgency !== 'TINGGI') {
-        return 1;
-      }
-
-      // Lalu target paling dekat.
-      return String(a.targetDate || '').localeCompare(
-        String(b.targetDate || '')
-      );
-    });
-  }, [
-    requests,
-    search,
-    queueView,
-    specFilter,
-    todayKey,
-    tomorrowKey,
-  ]);
-
-  // =====================================================
-  // PROCESS
-  // =====================================================
+  };
 
   const updatePrintStatus = async (
     request: ResourceRequest,
@@ -273,8 +210,8 @@ export const AdminResource: React.FC = () => {
   ) => {
     const confirmation =
       newStatus === 'SEDANG_DICETAK'
-        ? `Mulai mencetak "${request.title}"?`
-        : `Tandai "${request.title}" sebagai selesai dicetak?`;
+        ? `Mulai proses fotokopi "${request.title}"?`
+        : `Tandai "${request.title}" sebagai selesai difotokopi?`;
 
     if (!window.confirm(confirmation)) return;
 
@@ -293,113 +230,94 @@ export const AdminResource: React.FC = () => {
 
       if (error) throw error;
 
-      if (newStatus === 'SEDANG_DICETAK') {
-        setMsg(
-          `${request.id} sekarang berstatus SEDANG DICETAK.`
-        );
-      } else {
-        setMsg(
-          `${request.id} selesai dicetak dan masuk Riwayat Fotokopi.`
-        );
-        setQueueView('HISTORY');
-      }
+      setMsg(
+        newStatus === 'SEDANG_DICETAK'
+          ? `${request.id} sekarang sedang diproses.`
+          : `${request.id} selesai difotokopi dan masuk riwayat.`
+      );
 
       setSelectedRequest(null);
       await fetchRequests();
     } catch (err: any) {
       console.error('Resource update error:', err);
       setErrorMsg(
-        err?.message ||
-          'Gagal memperbarui status pencetakan.'
+        err?.message || 'Gagal memperbarui status pencetakan.'
       );
     } finally {
       setProcessingId(null);
     }
   };
 
-  const handleOpenDocument = async (
-    request: ResourceRequest
-  ) => {
-    if (request.status === 'DITOLAK') {
-      setErrorMsg(
-        'Pengajuan yang ditolak tidak masuk proses cetak Resource.'
-      );
-      return;
-    }
-
+  const handleOpenDocument = async (request: ResourceRequest) => {
     if (!request.fileUrl) {
-      setErrorMsg('Dokumen tidak tersedia.');
+      setErrorMsg(
+        'Link file tidak tersedia. Cek pengajuan guru atau gunakan folder Drive jika tersedia.'
+      );
       return;
     }
 
     setOpeningId(request.id);
     setErrorMsg('');
 
+    // Dibuka langsung saat klik supaya browser tidak memblokir sebagai popup.
+    const newTab = window.open('about:blank', '_blank');
+
     try {
-      if (request.fileType === 'url/link') {
-        window.open(
-          request.fileUrl,
-          '_blank',
-          'noopener,noreferrer'
-        );
+      const rawUrl = request.fileUrl.trim();
+
+      // Berlaku untuk Google Drive, Canva, URL langsung, dan public URL.
+      if (/^https?:\/\//i.test(rawUrl)) {
+        if (newTab) {
+          newTab.opener = null;
+          newTab.location.href = rawUrl;
+        } else {
+          window.location.href = rawUrl;
+        }
         return;
       }
 
+      // File lama di Supabase Storage disimpan sebagai storage path.
       const { data, error } = await supabase.storage
         .from('photocopy-files')
-        .createSignedUrl(request.fileUrl, 60 * 60);
+        .createSignedUrl(rawUrl, 60 * 60);
 
       if (error) throw error;
 
       if (!data?.signedUrl) {
-        throw new Error('File tidak dapat dibuka.');
+        throw new Error('Signed URL file tidak berhasil dibuat.');
       }
 
-      window.open(
-        data.signedUrl,
-        '_blank',
-        'noopener,noreferrer'
-      );
+      if (newTab) {
+        newTab.opener = null;
+        newTab.location.href = data.signedUrl;
+      } else {
+        window.location.href = data.signedUrl;
+      }
     } catch (err: any) {
+      if (newTab && !newTab.closed) {
+        newTab.close();
+      }
+
       console.error('Open resource document error:', err);
+
       setErrorMsg(
-        err?.message || 'Gagal membuka dokumen.'
+        `${err?.message || 'Gagal membuka dokumen.'} ${
+          request.driveFolderUrl
+            ? 'Gunakan tombol "Buka Folder Drive" pada Detail sebagai alternatif.'
+            : ''
+        }`
       );
     } finally {
       setOpeningId(null);
     }
   };
 
-  // =====================================================
-  // DISPLAY HELPERS
-  // =====================================================
-
-  const formatDate = (date?: string) => {
-    if (!date) return '-';
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return new Date(`${date}T00:00:00`).toLocaleDateString(
-        'id-ID',
-        {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-        }
-      );
-    }
-
-    return new Date(date).toLocaleString('id-ID', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
-  };
-
   const statusBadge = (request: ResourceRequest) => {
     if (request.status === 'DISETUJUI') {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 border border-green-200 text-green-700 rounded-lg text-[10px] font-bold">
-          <CheckCircle2 className="w-3 h-3" />
-          SIAP DICETAK
+          <ShieldCheck className="w-3 h-3" />
+          SUDAH ACC • SIAP DIPROSES
         </span>
       );
     }
@@ -413,50 +331,28 @@ export const AdminResource: React.FC = () => {
       );
     }
 
-    if (request.status === 'SELESAI') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[10px] font-bold">
-          <History className="w-3 h-3" />
-          PERNAH DIFOTOKOPI
-        </span>
-      );
-    }
-
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-100 border border-red-200 text-red-700 rounded-lg text-[10px] font-bold">
-        <XCircle className="w-3 h-3" />
-        DITOLAK
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[10px] font-bold">
+        <History className="w-3 h-3" />
+        SELESAI
       </span>
     );
   };
 
-  const queueViewLabel = {
-    TODAY: 'Pekerjaan Hari Ini',
-    TOMORROW: 'Pekerjaan Besok',
-    UPCOMING: 'Pekerjaan Mendatang',
-    HISTORY: 'Riwayat Fotokopi',
-    REJECTED: 'Pengajuan Ditolak',
-    ALL: 'Semua Data Resource',
-  }[queueView];
-
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-5">
-      {/* HEADER */}
       <div className="bg-slate-900 text-white p-6 sm:p-8 rounded-xl border border-slate-800 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 shadow-sm">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mb-2">
             <Building2 className="w-3.5 h-3.5" />
-            Admin Resource
+            Kelola Resource
           </div>
 
-          <h2 className="text-2xl font-bold">
-            Print Queue / Antrean Cetak
-          </h2>
+          <h2 className="text-2xl font-bold">Rekap Proses Fotokopi</h2>
 
           <p className="text-xs text-slate-300 mt-1 max-w-2xl">
-            Fokus pada pekerjaan berdasarkan tanggal kebutuhan.
-            Pekerjaan yang melewati target otomatis tetap masuk
-            ke antrean Hari Ini agar tidak terlewat.
+            Semua pengajuan yang sudah disetujui Kepsek/Wakasek masuk
+            dalam satu rekap. Buka file, proses fotokopi, lalu tandai selesai.
           </p>
         </div>
 
@@ -467,12 +363,16 @@ export const AdminResource: React.FC = () => {
           className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xs rounded-lg flex items-center gap-2"
         >
           <RefreshCw
-            className={`w-4 h-4 ${
-              loading ? 'animate-spin' : ''
-            }`}
+            className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`}
           />
           Muat Ulang
         </button>
+      </div>
+
+      <div className="bg-blue-50 border border-blue-200 text-blue-900 rounded-xl px-4 py-3 text-xs">
+        <strong>Cara mencetak:</strong> klik <strong>Buka / Cetak File</strong>.
+        Dokumen akan terbuka di tab baru. Dari PDF/Drive Viewer gunakan ikon
+        Print atau tekan <strong>Ctrl + P</strong>.
       </div>
 
       {msg && (
@@ -502,93 +402,39 @@ export const AdminResource: React.FC = () => {
         </div>
       )}
 
-      {/* MAIN QUEUE TABS */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <QueueCard
-          title="Hari Ini"
-          value={todayCount}
-          icon={<CalendarDays className="w-5 h-5" />}
-          active={queueView === 'TODAY'}
-          onClick={() => setQueueView('TODAY')}
-          className="bg-amber-50 border-amber-200 text-amber-800"
+      {/* Ringkasan - bukan tab */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <SummaryCard
+          label="Sudah ACC"
+          value={approvedCount}
+          icon={<ShieldCheck className="w-5 h-5" />}
+          helper="Siap diproses"
         />
-
-        <QueueCard
-          title="Besok"
-          value={tomorrowCount}
-          icon={<CalendarClock className="w-5 h-5" />}
-          active={queueView === 'TOMORROW'}
-          onClick={() => setQueueView('TOMORROW')}
-          className="bg-blue-50 border-blue-200 text-blue-800"
+        <SummaryCard
+          label="Sedang Dicetak"
+          value={printingCount}
+          icon={<Printer className="w-5 h-5" />}
+          helper="Masih berjalan"
         />
-
-        <QueueCard
-          title="Mendatang"
-          value={upcomingCount}
-          icon={<CalendarRange className="w-5 h-5" />}
-          active={queueView === 'UPCOMING'}
-          onClick={() => setQueueView('UPCOMING')}
-          className="bg-indigo-50 border-indigo-200 text-indigo-800"
+        <SummaryCard
+          label="Selesai"
+          value={completedCount}
+          icon={<CheckCircle2 className="w-5 h-5" />}
+          helper="Riwayat selesai"
         />
-
-        <QueueCard
-          title="Riwayat"
-          value={historyCount}
-          icon={<History className="w-5 h-5" />}
-          active={queueView === 'HISTORY'}
-          onClick={() => setQueueView('HISTORY')}
-          className="bg-slate-50 border-slate-200 text-slate-800"
-        />
-
-        <QueueCard
-          title="Ditolak"
-          value={rejectedCount}
-          icon={<XCircle className="w-5 h-5" />}
-          active={queueView === 'REJECTED'}
-          onClick={() => setQueueView('REJECTED')}
-          className="bg-red-50 border-red-200 text-red-800"
+        <SummaryCard
+          label="HVS Terpakai"
+          value={usedSheets}
+          icon={<FileText className="w-5 h-5" />}
+          helper="Lembar dari pekerjaan selesai"
+          suffix="lembar"
         />
       </div>
 
-      {/* SMALL SUMMARY */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
-            <Printer className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-[10px] uppercase font-bold text-slate-400">
-              Sedang Dicetak
-            </div>
-            <div className="text-xl font-bold text-slate-900">
-              {printingCount}
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center gap-3 text-white">
-          <div className="w-10 h-10 rounded-lg bg-indigo-500/20 text-indigo-300 flex items-center justify-center">
-            <FileText className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-[10px] uppercase font-bold text-slate-400">
-              HVS Antrean Aktif
-            </div>
-            <div className="text-xl font-bold text-indigo-300">
-              {queueSheets}{' '}
-              <span className="text-xs text-slate-400">
-                lembar
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* SEARCH + SPEC FILTER */}
+      {/* Satu filter bar untuk satu rekap */}
       <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex flex-col lg:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-
           <input
             type="text"
             value={search}
@@ -597,6 +443,19 @@ export const AdminResource: React.FC = () => {
             className="w-full border border-slate-200 rounded-lg pl-9 pr-3 py-2.5 text-xs outline-none focus:border-blue-400"
           />
         </div>
+
+        <select
+          value={statusFilter}
+          onChange={(e) =>
+            setStatusFilter(e.target.value as StatusFilter)
+          }
+          className="px-3 py-2.5 border border-slate-200 rounded-lg text-xs font-semibold bg-white text-slate-700"
+        >
+          <option value="ALL">Semua Status</option>
+          <option value="DISETUJUI">Sudah ACC / Siap Diproses</option>
+          <option value="SEDANG_DICETAK">Sedang Dicetak</option>
+          <option value="SELESAI">Selesai</option>
+        </select>
 
         <select
           value={specFilter}
@@ -614,217 +473,155 @@ export const AdminResource: React.FC = () => {
           <option value="SINGLE">1 Sisi</option>
           <option value="DOUBLE">2 Sisi</option>
         </select>
-
-        <button
-          type="button"
-          onClick={() => setQueueView('ALL')}
-          className={`px-4 py-2.5 border rounded-lg text-xs font-bold ${
-            queueView === 'ALL'
-              ? 'bg-slate-900 text-white border-slate-900'
-              : 'bg-white text-slate-600 border-slate-200'
-          }`}
-        >
-          Semua Data
-        </button>
       </div>
 
-      {/* QUEUE HEADER */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="font-bold text-slate-900">
-            {queueViewLabel}
-          </h3>
-          <p className="text-[11px] text-slate-500">
-            {filtered.length} pengajuan ditampilkan
-          </p>
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-slate-900">Semua Rekap Resource</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {filtered.length} data ditampilkan
+            </p>
+          </div>
         </div>
 
-        {specFilter !== 'ALL' && (
-          <button
-            type="button"
-            onClick={() => setSpecFilter('ALL')}
-            className="text-xs font-bold text-blue-700 underline"
-          >
-            Hapus Filter Spesifikasi
-          </button>
-        )}
-      </div>
-
-      {/* QUEUE */}
-      <div className="space-y-2">
         {loading ? (
-          <div className="bg-white border border-slate-200 rounded-xl py-16 text-center">
-            <RefreshCw className="w-7 h-7 animate-spin mx-auto text-blue-600 mb-3" />
-            <p className="text-sm font-semibold text-slate-700">
-              Memuat antrean Resource...
-            </p>
+          <div className="py-16 text-center text-sm text-slate-500">
+            Memuat data Resource...
           </div>
         ) : filtered.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-xl py-16 text-center px-4">
-            <Printer className="w-10 h-10 mx-auto text-slate-300 mb-3" />
-            <h3 className="font-bold text-slate-800">
-              Tidak Ada Pekerjaan
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Tidak ada pengajuan pada kelompok ini.
-            </p>
+          <div className="py-16 text-center">
+            <FileText className="w-9 h-9 text-slate-300 mx-auto mb-3" />
+            <div className="font-bold text-slate-700">
+              Belum ada data
+            </div>
+            <div className="text-xs text-slate-500 mt-1">
+              Pengajuan yang sudah ACC akan otomatis muncul di sini.
+            </div>
           </div>
         ) : (
-          filtered.map((request) => (
-            <div
-              key={request.id}
-              className={`bg-white border rounded-xl px-4 py-3 shadow-sm ${
-                isOverdue(request)
-                  ? 'border-red-300'
-                  : request.status === 'SEDANG_DICETAK'
-                  ? 'border-blue-300'
-                  : 'border-slate-200'
-              }`}
-            >
-              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-4 lg:items-center">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {statusBadge(request)}
-
-                    {isOverdue(request) && (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-lg text-[9px] font-bold">
-                        <Clock3 className="w-3 h-3" />
-                        LEWAT TARGET
-                      </span>
-                    )}
-
-                    {request.urgency === 'TINGGI' && (
-                      <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-lg text-[9px] font-bold">
-                        PRIORITAS TINGGI
-                      </span>
-                    )}
-
-                    <span className="font-mono text-[10px] font-bold text-blue-700">
-                      {request.id}
-                    </span>
-                  </div>
-
-                  <h4 className="text-sm font-bold text-slate-900 mt-2">
-                    {request.title}
-                  </h4>
-
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500 mt-1">
-                    <span>
-                      <strong className="text-slate-700">
-                        {request.teacherName}
-                      </strong>{' '}
-                      • {request.subjectClass}
-                    </span>
-
-                    <span>
-                      {request.pagesCount} hal ×{' '}
-                      {request.copiesCount} salinan
-                    </span>
-
-                    <span>
-                      <strong>{request.totalSheets}</strong> lembar
-                    </span>
-
-                    <span>
-                      {request.paperSize} •{' '}
-                      {request.colorOption === 'BW'
-                        ? 'BW'
-                        : 'Warna'}{' '}
-                      •{' '}
-                      {request.printSide === 'DOUBLE'
-                        ? '2 sisi'
-                        : '1 sisi'}
-                    </span>
-
-                    <span
-                      className={
-                        isOverdue(request)
-                          ? 'font-bold text-red-600'
-                          : 'font-semibold text-slate-600'
-                      }
-                    >
-                      Target: {formatDate(request.targetDate)}
-                    </span>
-                  </div>
-
-                  {request.status === 'SEDANG_DICETAK' &&
-                    request.printedBy && (
-                      <div className="text-[10px] text-blue-700 mt-2">
-                        Sedang dikerjakan oleh:{' '}
-                        <strong>{request.printedBy}</strong>
-                        {request.printedAt
-                          ? ` • ${formatDate(request.printedAt)}`
-                          : ''}
-                      </div>
-                    )}
-                </div>
-
-                <div className="flex flex-wrap gap-2 lg:justify-end">
-                  {request.status !== 'DITOLAK' && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleOpenDocument(request)
-                      }
-                      disabled={openingId === request.id}
-                      className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 rounded-lg text-[11px] font-bold text-slate-700 flex items-center gap-1.5 disabled:opacity-50"
-                    >
-                      {request.fileType === 'url/link' ? (
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      ) : (
-                        <FileText className="w-3.5 h-3.5" />
+          <div className="divide-y divide-slate-100">
+            {filtered.map((request) => (
+              <div
+                key={request.id}
+                className="p-5 hover:bg-slate-50/70 transition-colors"
+              >
+                <div className="flex flex-col xl:flex-row xl:items-center gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      {statusBadge(request)}
+                      {request.urgency === 'TINGGI' && (
+                        <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-red-50 border border-red-200 text-red-700">
+                          PRIORITAS
+                        </span>
                       )}
-                      Buka File
-                    </button>
-                  )}
+                    </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setSelectedRequest(request)}
-                    className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 rounded-lg text-[11px] font-bold text-slate-700 flex items-center gap-1.5"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    Detail
-                  </button>
+                    <div className="font-bold text-slate-900 break-words">
+                      {request.title}
+                    </div>
 
-                  {request.status === 'DISETUJUI' && (
+                    <div className="text-xs text-slate-600 mt-1">
+                      {request.teacherName} • {request.subjectClass}
+                    </div>
+
+                    <div className="text-[11px] text-slate-400 mt-1">
+                      {request.id}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                      <span className="px-2.5 py-1.5 rounded-lg bg-slate-100">
+                        {request.pagesCount} halaman × {request.copiesCount} salinan
+                      </span>
+                      <span className="px-2.5 py-1.5 rounded-lg bg-slate-100">
+                        {request.totalSheets} lembar
+                      </span>
+                      <span className="px-2.5 py-1.5 rounded-lg bg-slate-100">
+                        {request.paperSize}
+                      </span>
+                      <span className="px-2.5 py-1.5 rounded-lg bg-slate-100">
+                        {request.colorOption === 'BW'
+                          ? 'Hitam Putih'
+                          : 'Berwarna'}
+                      </span>
+                      <span className="px-2.5 py-1.5 rounded-lg bg-slate-100">
+                        {request.printSide === 'DOUBLE'
+                          ? '2 Sisi'
+                          : '1 Sisi'}
+                      </span>
+                      <span className="px-2.5 py-1.5 rounded-lg bg-slate-100">
+                        Target: {formatDate(request.targetDate)}
+                      </span>
+                    </div>
+
+                    {request.status === 'DISETUJUI' &&
+                      request.reviewedBy && (
+                        <div className="text-[11px] text-green-700 mt-3 flex items-center gap-1.5">
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          ACC oleh <strong>{request.reviewedBy}</strong>
+                          {request.reviewedAt
+                            ? ` • ${formatDate(request.reviewedAt)}`
+                            : ''}
+                        </div>
+                      )}
+                  </div>
+
+                  <div className="flex flex-wrap xl:justify-end gap-2 xl:w-[390px]">
                     <button
                       type="button"
-                      onClick={() =>
-                        updatePrintStatus(
-                          request,
-                          'SEDANG_DICETAK'
-                        )
-                      }
-                      disabled={processingId === request.id}
-                      className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                      onClick={() => setSelectedRequest(request)}
+                      className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-[11px] font-bold"
                     >
-                      <Play className="w-3.5 h-3.5" />
-                      Mulai Cetak
+                      Detail
                     </button>
-                  )}
 
-                  {request.status === 'SEDANG_DICETAK' && (
                     <button
                       type="button"
-                      onClick={() =>
-                        updatePrintStatus(request, 'SELESAI')
-                      }
-                      disabled={processingId === request.id}
-                      className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                      onClick={() => handleOpenDocument(request)}
+                      disabled={openingId === request.id}
+                      className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
                     >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Selesai
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      {openingId === request.id
+                        ? 'Membuka...'
+                        : 'Buka / Cetak File'}
                     </button>
-                  )}
+
+                    {request.status === 'DISETUJUI' && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePrintStatus(request, 'SEDANG_DICETAK')
+                        }
+                        disabled={processingId === request.id}
+                        className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                        Mulai Fotokopi
+                      </button>
+                    )}
+
+                    {request.status === 'SEDANG_DICETAK' && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updatePrintStatus(request, 'SELESAI')
+                        }
+                        disabled={processingId === request.id}
+                        className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Selesai
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
       </div>
 
-      {/* DETAIL MODAL */}
       {selectedRequest && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-slate-200">
@@ -849,18 +646,8 @@ export const AdminResource: React.FC = () => {
             </div>
 
             <div className="p-5 space-y-5">
-              {isOverdue(selectedRequest) && (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800 text-xs font-bold flex items-center gap-2">
-                  <Clock3 className="w-4 h-4" />
-                  Target cetak sudah terlewati. Mohon diprioritaskan.
-                </div>
-              )}
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Info
-                  label="Nama Guru"
-                  value={selectedRequest.teacherName}
-                />
+                <Info label="Nama Guru" value={selectedRequest.teacherName} />
                 <Info
                   label="Kelas / Mata Pelajaran"
                   value={selectedRequest.subjectClass}
@@ -895,60 +682,50 @@ export const AdminResource: React.FC = () => {
                 <div className="bg-green-50 border border-green-200 rounded-xl p-4">
                   <div className="flex items-center gap-2 text-green-800 font-bold text-xs">
                     <ShieldCheck className="w-4 h-4" />
-                    Keputusan Kepala Sekolah
+                    Sudah Disetujui Kepsek / Wakasek
                   </div>
                   <div className="text-[11px] text-green-700 mt-2">
-                    Oleh:{' '}
-                    <strong>{selectedRequest.reviewedBy}</strong>
+                    Oleh: <strong>{selectedRequest.reviewedBy}</strong>
                     {selectedRequest.reviewedAt
-                      ? ` • ${formatDate(
-                          selectedRequest.reviewedAt
-                        )}`
+                      ? ` • ${formatDate(selectedRequest.reviewedAt)}`
                       : ''}
                   </div>
                 </div>
               )}
 
               {selectedRequest.notes && (
+                <DetailBox label="Catatan Guru" value={selectedRequest.notes} />
+              )}
+
+              {selectedRequest.approvalNotes && (
                 <DetailBox
-                  label="Catatan Guru"
-                  value={selectedRequest.notes}
+                  label="Catatan Persetujuan"
+                  value={selectedRequest.approvalNotes}
                 />
               )}
 
-              {selectedRequest.approvalNotes &&
-                selectedRequest.status !== 'DITOLAK' && (
-                  <DetailBox
-                    label="Catatan Persetujuan Kepala Sekolah"
-                    value={selectedRequest.approvalNotes}
-                  />
-                )}
+              <button
+                type="button"
+                onClick={() => handleOpenDocument(selectedRequest)}
+                disabled={openingId === selectedRequest.id}
+                className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+              >
+                <ExternalLink className="w-4 h-4" />
+                {openingId === selectedRequest.id
+                  ? 'Membuka File...'
+                  : 'Buka / Cetak File'}
+              </button>
 
-              {selectedRequest.status === 'DITOLAK' && (
-                <DetailBox
-                  label="Alasan Penolakan"
-                  value={
-                    selectedRequest.rejectionReason ||
-                    'Tidak ada alasan tambahan.'
-                  }
-                  danger
-                />
-              )}
-
-              {selectedRequest.status !== 'DITOLAK' && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleOpenDocument(selectedRequest)
-                  }
-                  disabled={openingId === selectedRequest.id}
-                  className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+              {selectedRequest.driveFolderUrl && (
+                <a
+                  href={selectedRequest.driveFolderUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full py-3 px-4 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
                 >
                   <FileText className="w-4 h-4" />
-                  {selectedRequest.status === 'SELESAI'
-                    ? 'Buka File Riwayat Fotokopi'
-                    : 'Buka Dokumen untuk Dicetak'}
-                </button>
+                  Buka Folder Drive
+                </a>
               )}
 
               {selectedRequest.status === 'DISETUJUI' && (
@@ -956,10 +733,7 @@ export const AdminResource: React.FC = () => {
                   type="button"
                   disabled={processingId === selectedRequest.id}
                   onClick={() =>
-                    updatePrintStatus(
-                      selectedRequest,
-                      'SEDANG_DICETAK'
-                    )
+                    updatePrintStatus(selectedRequest, 'SEDANG_DICETAK')
                   }
                   className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
                 >
@@ -973,15 +747,12 @@ export const AdminResource: React.FC = () => {
                   type="button"
                   disabled={processingId === selectedRequest.id}
                   onClick={() =>
-                    updatePrintStatus(
-                      selectedRequest,
-                      'SELESAI'
-                    )
+                    updatePrintStatus(selectedRequest, 'SELESAI')
                   }
                   className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  Tandai Selesai Dicetak
+                  Tandai Selesai Difotokopi
                 </button>
               )}
 
@@ -989,7 +760,7 @@ export const AdminResource: React.FC = () => {
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
                   <History className="w-6 h-6 text-slate-600 mx-auto mb-2" />
                   <div className="text-xs font-bold text-slate-800">
-                    PERNAH DIFOTOKOPI
+                    SELESAI DIFOTOKOPI
                   </div>
                   {selectedRequest.completedAt && (
                     <div className="text-[11px] text-slate-500 mt-2">
@@ -1009,41 +780,30 @@ export const AdminResource: React.FC = () => {
   );
 };
 
-const QueueCard: React.FC<{
-  title: string;
+const SummaryCard: React.FC<{
+  label: string;
   value: number;
   icon: React.ReactNode;
-  active: boolean;
-  onClick: () => void;
-  className: string;
-}> = ({
-  title,
-  value,
-  icon,
-  active,
-  onClick,
-  className,
-}) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={`text-left rounded-xl border p-4 shadow-sm transition-all ${className} ${
-      active
-        ? 'ring-2 ring-slate-900 ring-offset-1'
-        : ''
-    }`}
-  >
+  helper: string;
+  suffix?: string;
+}> = ({ label, value, icon, helper, suffix }) => (
+  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
     <div className="flex items-center justify-between gap-2">
-      <span className="text-[10px] uppercase font-bold">
-        {title}
-      </span>
-      {icon}
+      <div className="text-[10px] uppercase font-bold text-slate-500">
+        {label}
+      </div>
+      <div className="text-slate-600">{icon}</div>
     </div>
-
-    <div className="text-2xl font-extrabold mt-2">
-      {value}
+    <div className="text-2xl font-extrabold text-slate-900 mt-2">
+      {value}{' '}
+      {suffix && (
+        <span className="text-xs font-semibold text-slate-500">
+          {suffix}
+        </span>
+      )}
     </div>
-  </button>
+    <div className="text-[10px] text-slate-400 mt-1">{helper}</div>
+  </div>
 );
 
 const Info: React.FC<{
@@ -1063,27 +823,12 @@ const Info: React.FC<{
 const DetailBox: React.FC<{
   label: string;
   value: string;
-  danger?: boolean;
-}> = ({ label, value, danger = false }) => (
-  <div
-    className={`rounded-xl p-4 border ${
-      danger
-        ? 'bg-red-50 border-red-200'
-        : 'bg-slate-50 border-slate-200'
-    }`}
-  >
-    <div
-      className={`text-[10px] uppercase tracking-wide font-bold ${
-        danger ? 'text-red-600' : 'text-slate-500'
-      }`}
-    >
+}> = ({ label, value }) => (
+  <div className="rounded-xl p-4 border bg-slate-50 border-slate-200">
+    <div className="text-[10px] uppercase tracking-wide font-bold text-slate-500">
       {label}
     </div>
-    <div
-      className={`text-xs mt-1 leading-relaxed ${
-        danger ? 'text-red-800' : 'text-slate-700'
-      }`}
-    >
+    <div className="text-xs mt-1 leading-relaxed text-slate-700">
       {value}
     </div>
   </div>
