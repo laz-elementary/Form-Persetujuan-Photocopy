@@ -98,15 +98,14 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     resubmittedAt: row.resubmitted_at || undefined,
   });
 
-  const fetchRequests = async () => {
-    setLoading(true);
+  const fetchRequests = async (silent = false) => {
+    if (!silent) setLoading(true);
     setErrorMsg('');
 
     try {
-      const { data, error } = await supabase
-        .from('photocopy_requests')
-        .select('*')
-        .order('submitted_at', { ascending: false });
+      const { data, error } = await supabase.rpc(
+        'approval_portal_list_requests'
+      );
 
       if (error) throw error;
 
@@ -118,12 +117,14 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
           'Gagal memuat daftar pengajuan.'
       );
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchRequests();
+    const timer = window.setInterval(() => fetchRequests(true), 10000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const formatDate = (value?: string) => {
@@ -144,7 +145,11 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     setErrorMsg('');
 
     try {
-      if (request.fileType === 'url/link') {
+      if (
+        request.fileType === 'url/link' ||
+        request.fileUrl.startsWith('http://') ||
+        request.fileUrl.startsWith('https://')
+      ) {
         window.open(
           request.fileUrl,
           '_blank',
@@ -153,6 +158,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         return;
       }
 
+      // Fallback untuk arsip lama yang masih tersimpan di Supabase Storage.
       const { data, error } = await supabase.storage
         .from('photocopy-files')
         .createSignedUrl(request.fileUrl, 60 * 60);
@@ -180,7 +186,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
   const approveRequest = async (request: DashboardRequest) => {
     if (!reviewEnabled) {
       setErrorMsg(
-        'Akun Administrator hanya memiliki akses pantau. Keputusan hanya dapat dilakukan oleh Kepala Sekolah.'
+        'Akun Administrator hanya memiliki akses pantau. Keputusan hanya dapat dilakukan oleh Kepala Sekolah atau Wakil Kepala Sekolah.'
       );
       return;
     }
@@ -198,29 +204,14 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     setSuccessMsg('');
 
     try {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError || !user) {
-        throw new Error(
-          'Sesi login tidak ditemukan. Silakan login ulang.'
-        );
-      }
-
-      const { error } = await supabase
-        .from('photocopy_requests')
-        .update({
-          status: 'DISETUJUI',
-          reviewed_at: new Date().toISOString(),
-          reviewed_by: reviewerName,
-          reviewed_by_email: user.email || null,
-          approval_notes: null,
-          rejection_reason: null,
-        })
-        .eq('id', request.id)
-        .eq('status', 'MENUNGGU');
+      const { error } = await supabase.rpc(
+        'review_photocopy_request',
+        {
+          p_request_id: request.id,
+          p_action: 'APPROVE',
+          p_notes: null,
+        }
+      );
 
       if (error) throw error;
 
@@ -274,51 +265,24 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     setSuccessMsg('');
 
     try {
-      if (actionType === 'REVISION') {
-        const { error } = await supabase.rpc(
-          'kepsek_request_revision',
-          {
-            p_request_id: actionTarget.id,
-            p_revision_notes: actionText.trim(),
-          }
-        );
+      const action = actionType === 'REVISION' ? 'REVISE' : 'REJECT';
 
-        if (error) throw error;
-
-        setSuccessMsg(
-          `${actionTarget.id} dikembalikan kepada guru untuk diperbaiki.`
-        );
-      } else {
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          throw new Error(
-            'Sesi login tidak ditemukan. Silakan login ulang.'
-          );
+      const { error } = await supabase.rpc(
+        'review_photocopy_request',
+        {
+          p_request_id: actionTarget.id,
+          p_action: action,
+          p_notes: actionText.trim(),
         }
+      );
 
-        const { error } = await supabase
-          .from('photocopy_requests')
-          .update({
-            status: 'DITOLAK',
-            reviewed_at: new Date().toISOString(),
-            reviewed_by: reviewerName,
-            reviewed_by_email: user.email || null,
-            rejection_reason: actionText.trim(),
-            approval_notes: null,
-          })
-          .eq('id', actionTarget.id)
-          .eq('status', 'MENUNGGU');
+      if (error) throw error;
 
-        if (error) throw error;
-
-        setSuccessMsg(
-          `${actionTarget.id} ditolak dan tersimpan dalam riwayat.`
-        );
-      }
+      setSuccessMsg(
+        actionType === 'REVISION'
+          ? `${actionTarget.id} dikembalikan kepada guru untuk diperbaiki.`
+          : `${actionTarget.id} ditolak dan tersimpan dalam riwayat.`
+      );
 
       setActionTarget(null);
       setActionType(null);
@@ -440,16 +404,16 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 mb-3">
             <ShieldCheck className="w-3.5 h-3.5" />
-            Portal Kepala Sekolah
+            Portal Persetujuan
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-bold">
-            Quick Decision Pengajuan Fotokopi
+            Quick Decision Persetujuan Fotokopi
           </h2>
 
           <p className="text-xs sm:text-sm text-slate-300 mt-1">
             {reviewEnabled
-              ? 'Buka file dan berikan keputusan langsung dari daftar.'
+              ? 'Kepala Sekolah dan Wakil Kepala Sekolah memiliki hak keputusan yang sama.'
               : 'Mode pantau Administrator. Keputusan hanya dapat dilakukan oleh Kepala Sekolah.'}
           </p>
         </div>
