@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { PhotocopyRequest } from '../types';
+import { PhotocopyRequest, RequestStatus } from '../types';
 import { supabase } from '../lib/supabase';
 import {
   Building2,
@@ -9,38 +9,31 @@ import {
   FileText,
   CheckCircle2,
   Printer,
-  Clock,
   Eye,
-  ExternalLink,
-  Play,
   AlertCircle,
   X,
   History,
+  RotateCcw,
+  Clock3,
   ShieldCheck,
 } from 'lucide-react';
 
-type AdminFilter =
-  | 'DISETUJUI'
-  | 'SEDANG_DICETAK'
-  | 'SELESAI'
-  | 'DITOLAK'
-  | 'ALL';
+type AdminFilter = RequestStatus | 'ALL';
+
+type AdminRequest = PhotocopyRequest;
 
 export const AdminManagement: React.FC = () => {
-  const [requests, setRequests] = useState<PhotocopyRequest[]>([]);
+  const [requests, setRequests] = useState<AdminRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [selectedStatus, setSelectedStatus] =
-    useState<AdminFilter>('DISETUJUI');
-  const [selectedRequest, setSelectedRequest] =
-    useState<PhotocopyRequest | null>(null);
-  const [processingId, setProcessingId] =
-    useState<string | null>(null);
-  const [openingFile, setOpeningFile] = useState(false);
-  const [msg, setMsg] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState<AdminFilter>('ALL');
+  const [selectedRequest, setSelectedRequest] = useState<AdminRequest | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [msg, setMsg] = useState('');
 
-  const mapRequest = (row: any): PhotocopyRequest => ({
+  const mapRequest = (row: any): AdminRequest => ({
     id: row.id,
     teacherName: row.teacher_name,
     teacherNip: row.teacher_nip || undefined,
@@ -52,6 +45,9 @@ export const AdminManagement: React.FC = () => {
     fileType: row.file_type || '',
     fileUrl: row.file_url || undefined,
     driveFolderUrl: row.drive_folder_url || undefined,
+    driveFileId: row.drive_file_id || undefined,
+    driveFileUrl: row.drive_file_url || undefined,
+    driveUploadedAt: row.drive_uploaded_at || undefined,
     pagesCount: row.pages_count,
     copiesCount: row.copies_count,
     totalSheets: row.total_sheets,
@@ -67,154 +63,98 @@ export const AdminManagement: React.FC = () => {
     reviewedBy: row.reviewed_by || undefined,
     approvalNotes: row.approval_notes || undefined,
     rejectionReason: row.rejection_reason || undefined,
+    revisionNotes: row.revision_notes || undefined,
+    revisionRequestedAt: row.revision_requested_at || undefined,
+    revisionRequestedBy: row.revision_requested_by || undefined,
+    revisionCount: row.revision_count || 0,
+    resubmittedAt: row.resubmitted_at || undefined,
     printedAt: row.printed_at || undefined,
     printedBy: row.printed_by || undefined,
     completedAt: row.completed_at || undefined,
   });
 
-  const fetchRequests = async () => {
-    setLoading(true);
+  const fetchRequests = async (silent = false) => {
+    if (!silent) setLoading(true);
     setErrorMsg('');
 
     try {
-      const { data, error } = await supabase
-        .from('photocopy_requests')
-        .select('*')
-        .in('status', [
-          'DISETUJUI',
-          'SEDANG_DICETAK',
-          'SELESAI',
-          'DITOLAK',
-        ])
-        .order('submitted_at', { ascending: false });
-
+      const { data, error } = await supabase.rpc('admin_list_photocopy_requests');
       if (error) throw error;
-
       setRequests((data || []).map(mapRequest));
     } catch (err: any) {
       console.error('Admin load error:', err);
-      setErrorMsg(
-        err?.message || 'Gagal memuat data pencetakan.'
-      );
+      setErrorMsg(err?.message || 'Gagal memuat data Admin Kelola.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchRequests();
+    const timer = window.setInterval(() => fetchRequests(true), 10000);
+    return () => window.clearInterval(timer);
   }, []);
 
-  const approvedCount = requests.filter(
-    (r) => r.status === 'DISETUJUI'
-  ).length;
+  const counts = useMemo(() => {
+    const result: Record<string, number> = {};
+    for (const request of requests) {
+      result[request.status] = (result[request.status] || 0) + 1;
+    }
+    return result;
+  }, [requests]);
 
-  const printingCount = requests.filter(
-    (r) => r.status === 'SEDANG_DICETAK'
-  ).length;
-
-  const completedCount = requests.filter(
-    (r) => r.status === 'SELESAI'
-  ).length;
-
-  const rejectedCount = requests.filter(
-    (r) => r.status === 'DITOLAK'
-  ).length;
-
-  const totalCompletedSheets = requests
-    .filter((r) => r.status === 'SELESAI')
-    .reduce(
-      (total, request) => total + (request.totalSheets || 0),
-      0
-    );
+  const totalUsedSheets = useMemo(
+    () =>
+      requests
+        .filter((request) => request.status === 'SELESAI')
+        .reduce((total, request) => total + (request.totalSheets || 0), 0),
+    [requests]
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-
-    return requests.filter((r) => {
-      const matchesStatus =
-        selectedStatus === 'ALL' ||
-        r.status === selectedStatus;
-
+    return requests.filter((request) => {
+      const matchesStatus = selectedStatus === 'ALL' || request.status === selectedStatus;
       const matchesSearch =
         !q ||
-        r.id.toLowerCase().includes(q) ||
-        r.teacherName.toLowerCase().includes(q) ||
-        (r.teacherEmail || '').toLowerCase().includes(q) ||
-        r.subjectClass.toLowerCase().includes(q) ||
-        r.title.toLowerCase().includes(q);
-
+        request.id.toLowerCase().includes(q) ||
+        request.teacherName.toLowerCase().includes(q) ||
+        (request.teacherEmail || '').toLowerCase().includes(q) ||
+        request.subjectClass.toLowerCase().includes(q) ||
+        request.title.toLowerCase().includes(q);
       return matchesStatus && matchesSearch;
     });
   }, [requests, search, selectedStatus]);
 
-  const updatePrintStatus = async (
-    request: PhotocopyRequest,
-    newStatus: 'SEDANG_DICETAK' | 'SELESAI'
-  ) => {
-    const confirmation =
-      newStatus === 'SEDANG_DICETAK'
-        ? `Mulai proses pencetakan "${request.title}"?`
-        : `Tandai pencetakan "${request.title}" sebagai selesai?`;
-
-    if (!window.confirm(confirmation)) return;
-
-    setProcessingId(request.id);
-    setMsg('');
-    setErrorMsg('');
-
-    try {
-      const { error } = await supabase.rpc(
-        'admin_update_print_status',
-        {
-          p_request_id: request.id,
-          p_new_status: newStatus,
-        }
-      );
-
-      if (error) throw error;
-
-      if (newStatus === 'SEDANG_DICETAK') {
-        setMsg(`${request.id} mulai diproses untuk pencetakan.`);
-        setSelectedStatus('SEDANG_DICETAK');
-      } else {
-        setMsg(
-          `${request.id} telah selesai dicetak dan masuk ke Riwayat Fotokopi.`
-        );
-        setSelectedStatus('SELESAI');
-      }
-
-      setSelectedRequest(null);
-      await fetchRequests();
-    } catch (err: any) {
-      console.error('Update print status error:', err);
-      setErrorMsg(
-        err?.message ||
-          'Gagal memperbarui status pencetakan.'
-      );
-    } finally {
-      setProcessingId(null);
+  const formatDate = (value?: string) => {
+    if (!value) return '-';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return new Date(`${value}T00:00:00`).toLocaleDateString('id-ID', {
+        dateStyle: 'medium',
+      });
     }
+    return new Date(value).toLocaleString('id-ID', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
   };
 
-  const handleOpenDocument = async (
-    request: PhotocopyRequest
-  ) => {
+  const openDocument = async (request: AdminRequest) => {
     if (!request.fileUrl) {
       setErrorMsg('Dokumen tidak tersedia.');
       return;
     }
 
-    setOpeningFile(true);
+    setOpeningId(request.id);
     setErrorMsg('');
 
     try {
-      if (request.fileType === 'url/link') {
-        window.open(
-          request.fileUrl,
-          '_blank',
-          'noopener,noreferrer'
-        );
+      if (
+        request.fileType === 'url/link' ||
+        request.fileUrl.startsWith('http://') ||
+        request.fileUrl.startsWith('https://')
+      ) {
+        window.open(request.fileUrl, '_blank', 'noopener,noreferrer');
         return;
       }
 
@@ -223,57 +163,80 @@ export const AdminManagement: React.FC = () => {
         .createSignedUrl(request.fileUrl, 60 * 60);
 
       if (error) throw error;
-
-      if (!data?.signedUrl) {
-        throw new Error('File tidak dapat dibuka.');
-      }
-
-      window.open(
-        data.signedUrl,
-        '_blank',
-        'noopener,noreferrer'
-      );
+      if (!data?.signedUrl) throw new Error('File tidak dapat dibuka.');
+      window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
     } catch (err: any) {
-      console.error('Open document error:', err);
-      setErrorMsg(
-        err?.message || 'Gagal membuka dokumen.'
-      );
+      setErrorMsg(err?.message || 'Gagal membuka dokumen.');
     } finally {
-      setOpeningFile(false);
+      setOpeningId(null);
     }
   };
 
-  const handleExportCSV = () => {
-    if (requests.length === 0) return;
+  const updatePrintStatus = async (
+    request: AdminRequest,
+    newStatus: 'SEDANG_DICETAK' | 'SELESAI'
+  ) => {
+    if (
+      !window.confirm(
+        newStatus === 'SEDANG_DICETAK'
+          ? `Mulai proses "${request.title}"?`
+          : `Tandai "${request.title}" sebagai selesai?`
+      )
+    ) {
+      return;
+    }
 
+    setProcessingId(request.id);
+    setErrorMsg('');
+    setMsg('');
+
+    try {
+      const { error } = await supabase.rpc('resource_update_print_status', {
+        p_request_id: request.id,
+        p_new_status: newStatus,
+      });
+      if (error) throw error;
+      setMsg(
+        newStatus === 'SEDANG_DICETAK'
+          ? `${request.id} sedang dicetak.`
+          : `${request.id} selesai dan masuk riwayat.`
+      );
+      setSelectedRequest(null);
+      await fetchRequests();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Gagal memperbarui status cetak.');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const exportCSV = () => {
     const headers = [
       'Tracking ID',
-      'Tanggal Pengajuan',
-      'Nama Guru',
-      'Email Guru',
+      'Tanggal',
+      'Guru',
+      'Email',
       'Kelas',
       'Judul',
       'Halaman',
       'Salinan',
       'Total HVS',
-      'Ukuran',
+      'Kertas',
       'Warna',
       'Sisi',
       'Status',
-      'Disetujui Oleh',
-      'Dicetak Oleh',
-      'Mulai Dicetak',
-      'Selesai Dicetak',
-      'Alasan Ditolak',
+      'Reviewer',
+      'Petugas Cetak',
+      'Selesai',
     ];
 
     const rows = requests.map((r) => [
       r.id,
-      new Date(r.submittedAt).toLocaleDateString('id-ID'),
-      `"${r.teacherName}"`,
-      `"${r.teacherEmail || ''}"`,
-      `"${r.subjectClass}"`,
-      `"${r.title}"`,
+      formatDate(r.submittedAt),
+      r.teacherName,
+      r.teacherEmail || '',
+      r.subjectClass,
+      r.title,
       r.pagesCount,
       r.copiesCount,
       r.totalSheets,
@@ -281,277 +244,105 @@ export const AdminManagement: React.FC = () => {
       r.colorOption,
       r.printSide,
       r.status,
-      `"${r.reviewedBy || ''}"`,
-      `"${r.printedBy || ''}"`,
-      r.printedAt
-        ? `"${new Date(r.printedAt).toLocaleString(
-            'id-ID'
-          )}"`
-        : '',
-      r.completedAt
-        ? `"${new Date(r.completedAt).toLocaleString(
-            'id-ID'
-          )}"`
-        : '',
-      `"${r.rejectionReason || ''}"`,
+      r.reviewedBy || '',
+      r.printedBy || '',
+      r.completedAt ? formatDate(r.completedAt) : '',
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map((row) => row.join(',')),
-    ].join('\n');
-
-    const blob = new Blob(
-      ['\uFEFF' + csvContent],
-      { type: 'text/csv;charset=utf-8;' }
-    );
-
+    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [headers, ...rows].map((row) => row.map(escape).join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-
-    link.href = url;
-    link.download = `Laporan_Fotokopi_${new Date()
-      .toISOString()
-      .slice(0, 10)}.csv`;
-
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Rekap_E-Photocopy_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-  const statusBadge = (status: string) => {
-    if (status === 'DISETUJUI') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 border border-green-200 text-green-700 rounded-lg text-[10px] font-bold">
-          <CheckCircle2 className="w-3 h-3" />
-          SIAP DIPROSES
-        </span>
-      );
-    }
+  const badge = (status: string) => {
+    const style: Record<string, string> = {
+      MENUNGGU: 'bg-amber-100 text-amber-700 border-amber-200',
+      PERLU_REVISI: 'bg-violet-100 text-violet-700 border-violet-200',
+      DISETUJUI: 'bg-green-100 text-green-700 border-green-200',
+      SEDANG_DICETAK: 'bg-blue-100 text-blue-700 border-blue-200',
+      SELESAI: 'bg-slate-100 text-slate-700 border-slate-200',
+      DITOLAK: 'bg-red-100 text-red-700 border-red-200',
+    };
 
-    if (status === 'SEDANG_DICETAK') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 border border-blue-200 text-blue-700 rounded-lg text-[10px] font-bold">
-          <Printer className="w-3 h-3" />
-          SEDANG DICETAK
-        </span>
-      );
-    }
-
-    if (status === 'DITOLAK') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-100 border border-red-200 text-red-700 rounded-lg text-[10px] font-bold">
-          <X className="w-3 h-3" />
-          DITOLAK
-        </span>
-      );
-    }
+    const label: Record<string, string> = {
+      MENUNGGU: 'MENUNGGU',
+      PERLU_REVISI: 'PERLU REVISI',
+      DISETUJUI: 'SIAP DICETAK',
+      SEDANG_DICETAK: 'SEDANG DICETAK',
+      SELESAI: 'SELESAI',
+      DITOLAK: 'DITOLAK',
+    };
 
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[10px] font-bold">
-        <History className="w-3 h-3" />
-        PERNAH DIFOTOKOPI
+      <span className={`inline-flex px-2 py-1 border rounded-lg text-[9px] font-bold ${style[status] || 'bg-slate-100'}`}>
+        {label[status] || status}
       </span>
     );
   };
 
-  const formatDate = (value?: string) => {
-    if (!value) return '-';
-
-    return new Date(value).toLocaleString('id-ID', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
-  };
+  const filterOptions: Array<[AdminFilter, string]> = [
+    ['ALL', `Semua (${requests.length})`],
+    ['MENUNGGU', `Menunggu (${counts.MENUNGGU || 0})`],
+    ['PERLU_REVISI', `Perlu Revisi (${counts.PERLU_REVISI || 0})`],
+    ['DISETUJUI', `Disetujui (${counts.DISETUJUI || 0})`],
+    ['SEDANG_DICETAK', `Sedang Dicetak (${counts.SEDANG_DICETAK || 0})`],
+    ['SELESAI', `Selesai (${counts.SELESAI || 0})`],
+    ['DITOLAK', `Ditolak (${counts.DITOLAK || 0})`],
+  ];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-      <div className="bg-slate-900 text-white p-6 sm:p-8 rounded-xl border border-slate-800 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 shadow-sm">
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-5">
+      <div className="bg-slate-900 text-white rounded-xl p-6 sm:p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 mb-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-bold mb-2">
             <Building2 className="w-3.5 h-3.5" />
-            <span>Admin Kelola</span>
+            Admin Kelola
           </div>
-
-          <h2 className="text-2xl font-bold">
-            Kelola Proses Fotokopi
-          </h2>
-
+          <h2 className="text-2xl font-bold">Monitoring E-Photocopy</h2>
           <p className="text-xs text-slate-300 mt-1">
-            Pantau pengajuan yang telah disetujui Kepala
-            Sekolah, proses pencetakan, dan riwayat bahan
-            yang pernah difotokopi.
+            Pantau seluruh alur dari pengajuan guru sampai selesai dicetak.
           </p>
         </div>
 
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={fetchRequests}
-            disabled={loading}
-            className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xs rounded-lg flex items-center gap-2"
-          >
-            <RefreshCw
-              className={`w-4 h-4 ${
-                loading ? 'animate-spin' : ''
-              }`}
-            />
+          <button onClick={fetchRequests} className="px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold flex items-center gap-2">
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Muat Ulang
           </button>
-
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg flex items-center gap-2"
-          >
+          <button onClick={exportCSV} className="px-4 py-2.5 bg-blue-600 rounded-lg text-xs font-bold flex items-center gap-2">
             <Download className="w-4 h-4" />
-            Ekspor CSV
+            Export CSV
           </button>
         </div>
       </div>
 
-      {msg && (
-        <div className="p-4 bg-green-50 border border-green-200 text-green-900 rounded-xl text-xs font-semibold flex items-center justify-between gap-3">
-          <span>{msg}</span>
+      {msg && <Notice text={msg} kind="success" onClose={() => setMsg('')} />}
+      {errorMsg && <Notice text={errorMsg} kind="error" onClose={() => setErrorMsg('')} />}
 
-          <button
-            onClick={() => setMsg('')}
-            className="font-bold underline"
-          >
-            Tutup
-          </button>
-        </div>
-      )}
-
-      {errorMsg && (
-        <div className="p-4 bg-red-50 border border-red-200 text-red-800 rounded-xl text-xs font-semibold flex gap-2 items-center">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span className="flex-1">{errorMsg}</span>
-          <button
-            type="button"
-            onClick={() => setErrorMsg('')}
-            className="p-1 hover:bg-red-100 rounded"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <button
-          type="button"
-          onClick={() => setSelectedStatus('DISETUJUI')}
-          className="text-left bg-green-50 border border-green-200 rounded-xl p-5"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-green-700 uppercase">
-              Siap Diproses
-            </span>
-            <FileText className="w-5 h-5 text-green-600" />
-          </div>
-          <div className="text-3xl font-bold text-green-900 mt-2">
-            {approvedCount}
-          </div>
-        </button>
-
-        <button
-          type="button"
-          onClick={() =>
-            setSelectedStatus('SEDANG_DICETAK')
-          }
-          className="text-left bg-blue-50 border border-blue-200 rounded-xl p-5"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-blue-700 uppercase">
-              Sedang Dicetak
-            </span>
-            <Printer className="w-5 h-5 text-blue-600" />
-          </div>
-          <div className="text-3xl font-bold text-blue-900 mt-2">
-            {printingCount}
-          </div>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSelectedStatus('SELESAI')}
-          className="text-left bg-slate-50 border border-slate-200 rounded-xl p-5"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-600 uppercase">
-              Riwayat Fotokopi
-            </span>
-            <History className="w-5 h-5 text-slate-600" />
-          </div>
-          <div className="text-3xl font-bold text-slate-900 mt-2">
-            {completedCount}
-          </div>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSelectedStatus('DITOLAK')}
-          className="text-left bg-red-50 border border-red-200 rounded-xl p-5"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-red-700 uppercase">
-              Ditolak
-            </span>
-            <X className="w-5 h-5 text-red-600" />
-          </div>
-          <div className="text-3xl font-bold text-red-900 mt-2">
-            {rejectedCount}
-          </div>
-        </button>
-
-        <div className="bg-slate-900 text-white border border-slate-800 rounded-xl p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase">
-              HVS Riwayat
-            </span>
-            <Clock className="w-5 h-5 text-blue-400" />
-          </div>
-          <div className="text-3xl font-bold text-blue-400 mt-2">
-            {totalCompletedSheets}
-          </div>
-          <div className="text-[10px] text-slate-400">
-            lembar
-          </div>
-        </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Summary label="Menunggu Keputusan" value={counts.MENUNGGU || 0} icon={<Clock3 className="w-5 h-5" />} />
+        <Summary label="Perlu Revisi" value={counts.PERLU_REVISI || 0} icon={<RotateCcw className="w-5 h-5" />} />
+        <Summary label="Selesai Dicetak" value={counts.SELESAI || 0} icon={<CheckCircle2 className="w-5 h-5" />} />
+        <Summary label="Total HVS Terpakai" value={totalUsedSheets} icon={<History className="w-5 h-5" />} suffix="lembar" dark />
       </div>
 
-      <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex flex-col lg:flex-row justify-between gap-4">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col lg:flex-row gap-3 justify-between">
         <div className="flex gap-1 bg-slate-100 p-1 rounded-lg overflow-x-auto">
-          {[
-            [
-              'DISETUJUI',
-              `Siap Diproses (${approvedCount})`,
-            ],
-            [
-              'SEDANG_DICETAK',
-              `Sedang Dicetak (${printingCount})`,
-            ],
-            [
-              'SELESAI',
-              `Riwayat Fotokopi (${completedCount})`,
-            ],
-            [
-              'DITOLAK',
-              `Ditolak (${rejectedCount})`,
-            ],
-            ['ALL', `Semua (${requests.length})`],
-          ].map(([status, label]) => (
+          {filterOptions.map(([status, label]) => (
             <button
               key={status}
               type="button"
-              onClick={() =>
-                setSelectedStatus(status as AdminFilter)
-              }
+              onClick={() => setSelectedStatus(status)}
               className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap ${
-                selectedStatus === status
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-white'
+                selectedStatus === status ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-white'
               }`}
             >
               {label}
@@ -561,121 +352,59 @@ export const AdminManagement: React.FC = () => {
 
         <div className="relative w-full lg:w-96">
           <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-
           <input
-            type="text"
-            placeholder="Cari guru, email, kelas, judul, atau Tracking ID..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full px-3.5 py-2 pl-9 border border-slate-300 bg-slate-50 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Cari guru, email, kelas, judul, atau Tracking ID..."
+            className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-xs"
           />
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center">
+          <div className="p-14 text-center">
             <RefreshCw className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-3" />
-            <p className="text-sm text-slate-500">
-              Memuat data...
-            </p>
+            <p className="text-sm text-slate-500">Memuat data...</p>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="p-12 text-center">
-            <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
-            <h3 className="font-bold text-slate-900">
-              Tidak Ada Data
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Tidak ada pengajuan pada kategori ini.
-            </p>
-          </div>
+          <div className="p-14 text-center text-slate-500">Tidak ada data pada kategori ini.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase">
-                  <th className="py-3.5 px-4 text-left">
-                    Tracking ID
-                  </th>
-                  <th className="py-3.5 px-4 text-left">
-                    Guru & Kelas
-                  </th>
-                  <th className="py-3.5 px-4 text-left">
-                    Bahan Ajar
-                  </th>
-                  <th className="py-3.5 px-4 text-left">
-                    Cetak
-                  </th>
-                  <th className="py-3.5 px-4 text-left">
-                    Status
-                  </th>
-                  <th className="py-3.5 px-4 text-center">
-                    Detail
-                  </th>
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase">
+                <tr>
+                  <th className="px-4 py-3 text-left">Pengajuan</th>
+                  <th className="px-4 py-3 text-left">Guru / Kelas</th>
+                  <th className="px-4 py-3 text-left">Kebutuhan</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-center">Aksi</th>
                 </tr>
               </thead>
-
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((request) => (
-                  <tr
-                    key={request.id}
-                    className="hover:bg-slate-50/70"
-                  >
-                    <td className="py-4 px-4 align-top">
-                      <div className="font-mono font-bold text-blue-700">
-                        {request.id}
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-1">
-                        {new Date(
-                          request.submittedAt
-                        ).toLocaleDateString('id-ID')}
-                      </div>
+                  <tr key={request.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-4 align-top">
+                      <div className="font-mono text-[10px] font-bold text-blue-700">{request.id}</div>
+                      <div className="font-bold text-slate-900 mt-1">{request.title}</div>
+                      <div className="text-[10px] text-slate-500 mt-1">{formatDate(request.submittedAt)}</div>
                     </td>
-
-                    <td className="py-4 px-4 align-top">
-                      <div className="font-bold text-slate-900">
-                        {request.teacherName}
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-1">
-                        {request.subjectClass}
-                      </div>
+                    <td className="px-4 py-4 align-top">
+                      <div className="font-bold text-slate-800">{request.teacherName}</div>
+                      <div className="text-slate-500 mt-1">{request.subjectClass}</div>
                     </td>
-
-                    <td className="py-4 px-4 align-top">
-                      <div className="font-semibold text-slate-900">
-                        {request.title}
-                      </div>
-                      <div className="text-[10px] text-slate-500 mt-1">
-                        {request.fileName}
-                      </div>
+                    <td className="px-4 py-4 align-top text-slate-600">
+                      <div>{request.pagesCount} hal × {request.copiesCount} salinan</div>
+                      <div className="mt-1"><strong>{request.totalSheets}</strong> lembar • {request.paperSize}</div>
                     </td>
-
-                    <td className="py-4 px-4 align-top">
-                      <div className="font-semibold text-slate-800">
-                        {request.pagesCount} hal ×{' '}
-                        {request.copiesCount} salinan
-                      </div>
-                      <div className="text-[10px] text-slate-500 mt-1">
-                        {request.totalSheets} lembar •{' '}
-                        {request.paperSize}
-                      </div>
-                    </td>
-
-                    <td className="py-4 px-4 align-top">
-                      {statusBadge(request.status)}
-                    </td>
-
-                    <td className="py-4 px-4 align-top text-center">
+                    <td className="px-4 py-4 align-top">{badge(request.status)}</td>
+                    <td className="px-4 py-4 align-top text-center">
                       <button
                         type="button"
-                        onClick={() =>
-                          setSelectedRequest(request)
-                        }
-                        className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-50"
+                        onClick={() => setSelectedRequest(request)}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg font-bold text-slate-700"
                       >
-                        <Eye className="w-4 h-4" />
-                        Lihat
+                        <Eye className="w-3.5 h-3.5" /> Detail
                       </button>
                     </td>
                   </tr>
@@ -687,238 +416,74 @@ export const AdminManagement: React.FC = () => {
       </div>
 
       {selectedRequest && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl max-w-xl w-full shadow-2xl border border-slate-200 my-8">
-            <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl">
+            <div className="sticky top-0 bg-white border-b border-slate-200 p-5 flex items-start justify-between gap-4">
               <div>
-                <span className="text-[10px] text-blue-600 font-bold uppercase">
-                  Detail Proses Fotokopi
-                </span>
-
-                <h3 className="text-xl font-bold text-slate-900">
-                  {selectedRequest.title}
-                </h3>
-
-                <p className="text-xs text-slate-500 mt-1">
-                  {selectedRequest.teacherName} •{' '}
-                  {selectedRequest.subjectClass}
-                </p>
+                {badge(selectedRequest.status)}
+                <h3 className="text-xl font-bold text-slate-900 mt-2">{selectedRequest.title}</h3>
+                <p className="text-xs text-slate-500 mt-1">{selectedRequest.id}</p>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setSelectedRequest(null)}
-                className="p-1.5 hover:bg-slate-100 rounded-lg"
-              >
-                <X className="w-5 h-5 text-slate-500" />
+              <button onClick={() => setSelectedRequest(null)} className="p-2 text-slate-400">
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[10px] text-slate-500 uppercase font-bold">
-                    Tracking ID
-                  </div>
-                  <div className="font-mono font-bold text-blue-700">
-                    {selectedRequest.id}
-                  </div>
-                </div>
-
-                {statusBadge(selectedRequest.status)}
+            <div className="p-5 space-y-4">
+              <div className="grid sm:grid-cols-2 gap-3">
+                <Info label="Guru" value={selectedRequest.teacherName} />
+                <Info label="Kelas / Mapel" value={selectedRequest.subjectClass} />
+                <Info label="Total HVS" value={`${selectedRequest.totalSheets} lembar`} />
+                <Info label="Target" value={formatDate(selectedRequest.targetDate)} />
               </div>
 
-              {selectedRequest.status !== 'DITOLAK' &&
-                selectedRequest.reviewedBy && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                    <div className="flex items-center gap-2 text-green-800 font-bold text-xs">
-                      <ShieldCheck className="w-4 h-4" />
-                      Disetujui Kepala Sekolah
-                    </div>
-                    <div className="text-[11px] text-green-700 mt-1">
-                      Oleh:{' '}
-                      <strong>
-                        {selectedRequest.reviewedBy}
-                      </strong>
-                      {selectedRequest.reviewedAt
-                        ? ` • ${formatDate(
-                            selectedRequest.reviewedAt
-                          )}`
-                        : ''}
-                    </div>
-                  </div>
-                )}
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                  <div className="text-[10px] text-slate-500">
-                    Halaman
-                  </div>
-                  <div className="font-bold text-slate-800">
-                    {selectedRequest.pagesCount}
-                  </div>
+              {selectedRequest.reviewedBy && (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-xs text-green-800">
+                  <div className="font-bold flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> Keputusan Portal Persetujuan</div>
+                  <div className="mt-2">{selectedRequest.reviewedBy} • {formatDate(selectedRequest.reviewedAt)}</div>
                 </div>
+              )}
 
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                  <div className="text-[10px] text-slate-500">
-                    Salinan
-                  </div>
-                  <div className="font-bold text-slate-800">
-                    {selectedRequest.copiesCount}
-                  </div>
-                </div>
-
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <div className="text-[10px] text-blue-600">
-                    Total HVS
-                  </div>
-                  <div className="font-bold text-blue-800">
-                    {selectedRequest.totalSheets}
-                  </div>
-                </div>
-              </div>
+              {selectedRequest.status === 'PERLU_REVISI' && (
+                <Detail label="Catatan Revisi" value={selectedRequest.revisionNotes || '-'} />
+              )}
 
               {selectedRequest.status === 'DITOLAK' && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <div className="text-xs font-bold text-red-800">
-                    PENGAJUAN DITOLAK
-                  </div>
-
-                  <div className="text-[11px] text-red-700 mt-2">
-                    {selectedRequest.reviewedBy && (
-                      <>
-                        Keputusan oleh:{' '}
-                        <strong>
-                          {selectedRequest.reviewedBy}
-                        </strong>
-                        {selectedRequest.reviewedAt
-                          ? ` • ${formatDate(
-                              selectedRequest.reviewedAt
-                            )}`
-                          : ''}
-                      </>
-                    )}
-                  </div>
-
-                  <div className="text-xs text-red-900 mt-3">
-                    <strong>Alasan:</strong>{' '}
-                    {selectedRequest.rejectionReason ||
-                      'Tidak ada alasan tambahan.'}
-                  </div>
-                </div>
+                <Detail label="Alasan Penolakan" value={selectedRequest.rejectionReason || '-'} danger />
               )}
 
-              <button
-                type="button"
-                disabled={openingFile}
-                onClick={() =>
-                  handleOpenDocument(selectedRequest)
-                }
-                className="w-full p-4 border border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center justify-between gap-3 disabled:opacity-50"
-              >
-                <div className="text-left">
-                  <div className="text-xs font-bold text-blue-900">
-                    {selectedRequest.status === 'DITOLAK'
-                      ? 'Buka File Pengajuan'
-                      : selectedRequest.status === 'SELESAI'
-                      ? 'Buka File yang Pernah Difotokopi'
-                      : 'Buka Dokumen Bahan Ajar'}
-                  </div>
-                  <div className="text-[10px] text-blue-700 mt-0.5">
-                    {selectedRequest.fileName}
-                  </div>
-                </div>
-                <ExternalLink className="w-4 h-4 text-blue-700" />
-              </button>
-
-              {selectedRequest.approvalNotes && (
-                <div className="bg-green-50 border border-green-200 text-green-900 p-3 rounded-lg text-xs">
-                  <strong>Catatan Kepsek:</strong>{' '}
-                  {selectedRequest.approvalNotes}
-                </div>
+              {selectedRequest.fileUrl && (
+                <button
+                  type="button"
+                  onClick={() => openDocument(selectedRequest)}
+                  disabled={openingId === selectedRequest.id}
+                  className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <FileText className="w-4 h-4" /> Buka Dokumen
+                </button>
               )}
 
-              {selectedRequest.printedBy && (
-                <div className="text-xs text-slate-500">
-                  Diproses oleh:{' '}
-                  <strong className="text-slate-800">
-                    {selectedRequest.printedBy}
-                  </strong>
-                  {selectedRequest.printedAt
-                    ? ` • ${formatDate(
-                        selectedRequest.printedAt
-                      )}`
-                    : ''}
-                </div>
+              {selectedRequest.status === 'DISETUJUI' && (
+                <button
+                  type="button"
+                  onClick={() => updatePrintStatus(selectedRequest, 'SEDANG_DICETAK')}
+                  disabled={processingId === selectedRequest.id}
+                  className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Printer className="w-4 h-4" /> Mulai Cetak (Backup Admin)
+                </button>
               )}
 
-              <div className="pt-4 border-t border-slate-100">
-                {selectedRequest.status ===
-                  'DISETUJUI' && (
-                  <button
-                    type="button"
-                    disabled={
-                      processingId === selectedRequest.id
-                    }
-                    onClick={() =>
-                      updatePrintStatus(
-                        selectedRequest,
-                        'SEDANG_DICETAK'
-                      )
-                    }
-                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    <Play className="w-4 h-4" />
-                    Mulai Proses Fotokopi
-                  </button>
-                )}
-
-                {selectedRequest.status ===
-                  'SEDANG_DICETAK' && (
-                  <button
-                    type="button"
-                    disabled={
-                      processingId === selectedRequest.id
-                    }
-                    onClick={() =>
-                      updatePrintStatus(
-                        selectedRequest,
-                        'SELESAI'
-                      )
-                    }
-                    className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    Tandai Selesai Dicetak
-                  </button>
-                )}
-
-                {selectedRequest.status === 'SELESAI' && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
-                    <History className="w-6 h-6 text-green-600 mx-auto mb-2" />
-
-                    <div className="text-xs font-bold text-green-800">
-                      PERNAH DIFOTOKOPI
-                    </div>
-
-                    <div className="text-[11px] text-green-700 mt-1">
-                      Pengajuan ini tersimpan sebagai
-                      riwayat fotokopi sekolah.
-                    </div>
-
-                    {selectedRequest.completedAt && (
-                      <div className="text-[11px] text-green-700 mt-2">
-                        Selesai pada:{' '}
-                        <strong>
-                          {formatDate(
-                            selectedRequest.completedAt
-                          )}
-                        </strong>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              {selectedRequest.status === 'SEDANG_DICETAK' && (
+                <button
+                  type="button"
+                  onClick={() => updatePrintStatus(selectedRequest, 'SELESAI')}
+                  disabled={processingId === selectedRequest.id}
+                  className="w-full py-3 bg-green-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> Tandai Selesai
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -926,3 +491,49 @@ export const AdminManagement: React.FC = () => {
     </div>
   );
 };
+
+const Summary: React.FC<{
+  label: string;
+  value: number;
+  icon: React.ReactNode;
+  suffix?: string;
+  dark?: boolean;
+}> = ({ label, value, icon, suffix, dark = false }) => (
+  <div className={`rounded-xl border p-4 ${dark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200'}`}>
+    <div className="flex items-center justify-between gap-2">
+      <span className={`text-[10px] uppercase font-bold ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{label}</span>
+      {icon}
+    </div>
+    <div className="text-2xl font-extrabold mt-2">{value} {suffix && <span className="text-[10px] text-slate-400">{suffix}</span>}</div>
+  </div>
+);
+
+const Info: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+    <div className="text-[10px] uppercase font-bold text-slate-400">{label}</div>
+    <div className="text-xs font-semibold text-slate-800 mt-1">{value}</div>
+  </div>
+);
+
+const Detail: React.FC<{ label: string; value: string; danger?: boolean }> = ({ label, value, danger }) => (
+  <div className={`rounded-xl p-4 border ${danger ? 'bg-red-50 border-red-200 text-red-800' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
+    <div className="text-[10px] uppercase font-bold opacity-70">{label}</div>
+    <div className="text-xs mt-1">{value}</div>
+  </div>
+);
+
+const Notice: React.FC<{
+  text: string;
+  kind: 'success' | 'error';
+  onClose: () => void;
+}> = ({ text, kind, onClose }) => (
+  <div className={`p-4 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
+    kind === 'success'
+      ? 'bg-green-50 border-green-200 text-green-800'
+      : 'bg-red-50 border-red-200 text-red-800'
+  }`}>
+    {kind === 'error' && <AlertCircle className="w-4 h-4 shrink-0" />}
+    <span className="flex-1">{text}</span>
+    <button onClick={onClose}><X className="w-4 h-4" /></button>
+  </div>
+);
