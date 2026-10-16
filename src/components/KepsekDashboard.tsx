@@ -98,14 +98,15 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     resubmittedAt: row.resubmitted_at || undefined,
   });
 
-  const fetchRequests = async (silent = false) => {
-    if (!silent) setLoading(true);
+  const fetchRequests = async () => {
+    setLoading(true);
     setErrorMsg('');
 
     try {
-      const { data, error } = await supabase.rpc(
-        'approval_portal_list_requests'
-      );
+      const { data, error } = await supabase
+        .from('photocopy_requests')
+        .select('*')
+        .order('submitted_at', { ascending: false });
 
       if (error) throw error;
 
@@ -117,14 +118,12 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
           'Gagal memuat daftar pengajuan.'
       );
     } finally {
-      if (!silent) setLoading(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchRequests();
-    const timer = window.setInterval(() => fetchRequests(true), 10000);
-    return () => window.clearInterval(timer);
   }, []);
 
   const formatDate = (value?: string) => {
@@ -145,11 +144,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     setErrorMsg('');
 
     try {
-      if (
-        request.fileType === 'url/link' ||
-        request.fileUrl.startsWith('http://') ||
-        request.fileUrl.startsWith('https://')
-      ) {
+      if (request.fileType === 'url/link') {
         window.open(
           request.fileUrl,
           '_blank',
@@ -158,7 +153,6 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         return;
       }
 
-      // Fallback untuk arsip lama yang masih tersimpan di Supabase Storage.
       const { data, error } = await supabase.storage
         .from('photocopy-files')
         .createSignedUrl(request.fileUrl, 60 * 60);
@@ -186,7 +180,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
   const approveRequest = async (request: DashboardRequest) => {
     if (!reviewEnabled) {
       setErrorMsg(
-        'Akun Administrator hanya memiliki akses pantau. Keputusan hanya dapat dilakukan oleh Kepala Sekolah atau Wakil Kepala Sekolah.'
+        'Akun Administrator hanya memiliki akses pantau. Keputusan hanya dapat dilakukan oleh Kepala Sekolah.'
       );
       return;
     }
@@ -204,14 +198,29 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     setSuccessMsg('');
 
     try {
-      const { error } = await supabase.rpc(
-        'review_photocopy_request',
-        {
-          p_request_id: request.id,
-          p_action: 'APPROVE',
-          p_notes: null,
-        }
-      );
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error(
+          'Sesi login tidak ditemukan. Silakan login ulang.'
+        );
+      }
+
+      const { error } = await supabase
+        .from('photocopy_requests')
+        .update({
+          status: 'DISETUJUI',
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: reviewerName,
+          reviewed_by_email: user.email || null,
+          approval_notes: null,
+          rejection_reason: null,
+        })
+        .eq('id', request.id)
+        .eq('status', 'MENUNGGU');
 
       if (error) throw error;
 
@@ -265,24 +274,51 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     setSuccessMsg('');
 
     try {
-      const action = actionType === 'REVISION' ? 'REVISE' : 'REJECT';
+      if (actionType === 'REVISION') {
+        const { error } = await supabase.rpc(
+          'kepsek_request_revision',
+          {
+            p_request_id: actionTarget.id,
+            p_revision_notes: actionText.trim(),
+          }
+        );
 
-      const { error } = await supabase.rpc(
-        'review_photocopy_request',
-        {
-          p_request_id: actionTarget.id,
-          p_action: action,
-          p_notes: actionText.trim(),
+        if (error) throw error;
+
+        setSuccessMsg(
+          `${actionTarget.id} dikembalikan kepada guru untuk diperbaiki.`
+        );
+      } else {
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          throw new Error(
+            'Sesi login tidak ditemukan. Silakan login ulang.'
+          );
         }
-      );
 
-      if (error) throw error;
+        const { error } = await supabase
+          .from('photocopy_requests')
+          .update({
+            status: 'DITOLAK',
+            reviewed_at: new Date().toISOString(),
+            reviewed_by: reviewerName,
+            reviewed_by_email: user.email || null,
+            rejection_reason: actionText.trim(),
+            approval_notes: null,
+          })
+          .eq('id', actionTarget.id)
+          .eq('status', 'MENUNGGU');
 
-      setSuccessMsg(
-        actionType === 'REVISION'
-          ? `${actionTarget.id} dikembalikan kepada guru untuk diperbaiki.`
-          : `${actionTarget.id} ditolak dan tersimpan dalam riwayat.`
-      );
+        if (error) throw error;
+
+        setSuccessMsg(
+          `${actionTarget.id} ditolak dan tersimpan dalam riwayat.`
+        );
+      }
 
       setActionTarget(null);
       setActionType(null);
@@ -303,7 +339,10 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
   const counts = useMemo(
     () => ({
       MENUNGGU: requests.filter(
-        (r) => r.status === 'MENUNGGU'
+        (r) => r.status === 'MENUNGGU' && !r.resubmittedAt
+      ).length,
+      SUDAH_DIREVISI: requests.filter(
+        (r) => r.status === 'MENUNGGU' && !!r.resubmittedAt
       ).length,
       PERLU_REVISI: requests.filter(
         (r) => r.status === 'PERLU_REVISI'
@@ -337,7 +376,11 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
               'SEDANG_DICETAK',
               'SELESAI',
             ].includes(r.status)
-          : r.status === selectedStatus);
+          : selectedStatus === 'MENUNGGU'
+            ? r.status === 'MENUNGGU' && !r.resubmittedAt
+            : selectedStatus === 'SUDAH_DIREVISI'
+              ? r.status === 'MENUNGGU' && !!r.resubmittedAt
+              : r.status === selectedStatus);
 
       const matchesSearch =
         !q ||
@@ -350,7 +393,17 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     });
   }, [requests, selectedStatus, searchQuery]);
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (request: DashboardRequest) => {
+    const { status, resubmittedAt } = request;
+
+    if (status === 'MENUNGGU' && resubmittedAt) {
+      return (
+        <span className="px-2 py-1 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">
+          SUDAH DIREVISI • REVIEW ULANG
+        </span>
+      );
+    }
+
     if (status === 'MENUNGGU') {
       return (
         <span className="px-2 py-1 rounded text-[10px] font-bold bg-amber-100 text-amber-700">
@@ -404,16 +457,16 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 mb-3">
             <ShieldCheck className="w-3.5 h-3.5" />
-            Portal Persetujuan
+            Portal Kepala Sekolah
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-bold">
-            Quick Decision Persetujuan Fotokopi
+            Quick Decision Pengajuan Fotokopi
           </h2>
 
           <p className="text-xs sm:text-sm text-slate-300 mt-1">
             {reviewEnabled
-              ? 'Kepala Sekolah dan Wakil Kepala Sekolah memiliki hak keputusan yang sama.'
+              ? 'Buka file dan berikan keputusan langsung dari daftar.'
               : 'Mode pantau Administrator. Keputusan hanya dapat dilakukan oleh Kepala Sekolah.'}
           </p>
         </div>
@@ -459,12 +512,21 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
         <Metric
           label="Menunggu"
           value={counts.MENUNGGU}
           onClick={() => setSelectedStatus('MENUNGGU')}
           className="bg-amber-50 border-amber-200 text-amber-800"
+        />
+
+        <Metric
+          label="Sudah Direvisi"
+          value={counts.SUDAH_DIREVISI}
+          onClick={() =>
+            setSelectedStatus('SUDAH_DIREVISI')
+          }
+          className="bg-indigo-50 border-indigo-200 text-indigo-800"
         />
 
         <Metric
@@ -502,6 +564,10 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         <div className="flex gap-1 bg-slate-100 p-1 rounded-lg overflow-x-auto">
           {[
             ['MENUNGGU', `Menunggu (${counts.MENUNGGU})`],
+            [
+              'SUDAH_DIREVISI',
+              `Sudah Direvisi (${counts.SUDAH_DIREVISI})`,
+            ],
             [
               'PERLU_REVISI',
               `Perlu Revisi (${counts.PERLU_REVISI})`,
@@ -562,7 +628,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
                 <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-4 lg:items-center">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      {getStatusBadge(request.status)}
+                      {getStatusBadge(request)}
                       {request.urgency === 'TINGGI' && (
                         <span className="px-2 py-1 rounded text-[9px] font-bold bg-red-100 text-red-700">
                           URGENT
@@ -599,6 +665,19 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
                         <div className="mt-2 text-[11px] text-violet-800 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
                           <strong>Catatan revisi:</strong>{' '}
                           {request.revisionNotes}
+                        </div>
+                      )}
+
+                    {request.status === 'MENUNGGU' &&
+                      request.resubmittedAt && (
+                        <div className="mt-2 text-[11px] text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+                          <strong>Sudah direvisi oleh guru.</strong>{' '}
+                          Dikirim ulang {new Date(
+                            request.resubmittedAt
+                          ).toLocaleString('id-ID', {
+                            dateStyle: 'medium',
+                            timeStyle: 'short',
+                          })}. Silakan review ulang.
                         </div>
                       )}
                   </div>
