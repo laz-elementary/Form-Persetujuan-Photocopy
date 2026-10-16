@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { uploadFileToDrive } from '../lib/driveUpload';
 import {
   Clock,
   CheckCircle2,
@@ -28,6 +27,7 @@ interface StatusTrackerProps {
 type HistoryFilter =
   | 'SEMUA'
   | 'MENUNGGU'
+  | 'SUDAH_DIREVISI'
   | 'PERLU_REVISI'
   | 'DISETUJUI'
   | 'SEDANG_DICETAK'
@@ -340,7 +340,21 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
     printWindow.document.close();
   };
 
-  const getStatusStyle = (status: string) => {
+  const getStatusStyle = (
+    status: string,
+    resubmittedAt?: string
+  ) => {
+    if (status === 'MENUNGGU' && resubmittedAt) {
+      return {
+        className:
+          'bg-indigo-100 text-indigo-700 border-indigo-200',
+        cardBorder: 'border-indigo-200',
+        label: 'SUDAH DIREVISI',
+        shortLabel: 'Sudah Direvisi',
+        icon: <RotateCcw className="w-4 h-4" />,
+      };
+    }
+
     switch (status) {
       case 'DISETUJUI':
         return {
@@ -407,7 +421,10 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
   const counts = useMemo(
     () => ({
       MENUNGGU: requests.filter(
-        (r) => r.status === 'MENUNGGU'
+        (r) => r.status === 'MENUNGGU' && !r.resubmittedAt
+      ).length,
+      SUDAH_DIREVISI: requests.filter(
+        (r) => r.status === 'MENUNGGU' && !!r.resubmittedAt
       ).length,
       PERLU_REVISI: requests.filter(
         (r) => r.status === 'PERLU_REVISI'
@@ -433,7 +450,14 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
 
     return requests.filter((request) => {
       const matchesStatus =
-        filter === 'SEMUA' || request.status === filter;
+        filter === 'SEMUA' ||
+        (filter === 'MENUNGGU'
+          ? request.status === 'MENUNGGU' &&
+            !request.resubmittedAt
+          : filter === 'SUDAH_DIREVISI'
+            ? request.status === 'MENUNGGU' &&
+              !!request.resubmittedAt
+            : request.status === filter);
 
       const matchesSearch =
         !q ||
@@ -477,6 +501,11 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
       value: 'MENUNGGU',
       label: 'Menunggu',
       count: counts.MENUNGGU,
+    },
+    {
+      value: 'SUDAH_DIREVISI',
+      label: 'Sudah Direvisi',
+      count: counts.SUDAH_DIREVISI,
     },
     {
       value: 'PERLU_REVISI',
@@ -562,78 +591,97 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
     setErrorMsg('');
     setSuccessMsg('');
 
+    let uploadedPath: string | null = null;
+
     try {
-      const normalizedEmail = revisionForm.email.trim().toLowerCase();
-
-      // Verifikasi email/status dulu sebelum mengunggah file baru ke Drive.
-      const { data: canRevise, error: verifyError } = await supabase.rpc(
-        'teacher_revision_check',
-        {
-          p_request_id: revisionRequest.id,
-          p_teacher_email: normalizedEmail,
-        }
-      );
-
-      if (verifyError) throw verifyError;
-      if (!canRevise) {
-        throw new Error('Email guru tidak sesuai dengan pengajuan ini.');
-      }
-
       let fileName: string | null = null;
       let fileSize: string | null = null;
       let fileType: string | null = null;
       let fileUrl: string | null = null;
-      let driveFileId: string | null = null;
-      let driveFileUrl: string | null = null;
 
       if (replacementFile) {
-        if (replacementFile.size > 25 * 1024 * 1024) {
-          throw new Error('Ukuran file maksimal 25 MB.');
+        if (
+          replacementFile.size >
+          20 * 1024 * 1024
+        ) {
+          throw new Error(
+            'Ukuran file maksimal 20 MB.'
+          );
         }
 
-        const driveFile = await uploadFileToDrive(replacementFile, {
-          trackingId: revisionRequest.id,
-          teacherName: revisionRequest.teacherName,
-          title: `${revisionForm.title.trim()} - REVISI`,
-        });
+        let safeName = replacementFile.name
+          .replace(/\s+/g, '_')
+          .replace(/[^a-zA-Z0-9._-]/g, '');
 
-        fileName = driveFile.fileName;
-        fileSize = driveFile.fileSize;
-        fileType = driveFile.fileType;
-        fileUrl = driveFile.fileUrl;
-        driveFileId = driveFile.fileId;
-        driveFileUrl = driveFile.fileUrl;
+        if (!safeName) safeName = 'document';
+
+        uploadedPath = `${
+          revisionRequest.id
+        }/revision-${Date.now()}-${safeName}`;
+
+        const { error: uploadError } =
+          await supabase.storage
+            .from('photocopy-files')
+            .upload(
+              uploadedPath,
+              replacementFile,
+              {
+                cacheControl: '3600',
+                upsert: false,
+                contentType:
+                  replacementFile.type ||
+                  'application/octet-stream',
+              }
+            );
+
+        if (uploadError) throw uploadError;
+
+        fileName = replacementFile.name;
+        fileSize = `${(
+          replacementFile.size /
+          (1024 * 1024)
+        ).toFixed(1)} MB`;
+        fileType =
+          replacementFile.type ||
+          'application/octet-stream';
+        fileUrl = uploadedPath;
       }
 
       const { error } = await supabase.rpc(
         'teacher_resubmit_revision',
         {
           p_request_id: revisionRequest.id,
-          p_teacher_email: normalizedEmail,
-          p_subject_class: revisionForm.subjectClass.trim(),
+          p_teacher_email:
+            revisionForm.email.trim(),
+          p_subject_class:
+            revisionForm.subjectClass.trim(),
           p_title: revisionForm.title.trim(),
-          p_pages_count: revisionForm.pagesCount,
-          p_copies_count: revisionForm.copiesCount,
+          p_pages_count:
+            revisionForm.pagesCount,
+          p_copies_count:
+            revisionForm.copiesCount,
           p_total_sheets: revisionSheets,
-          p_paper_size: revisionForm.paperSize,
-          p_color_option: revisionForm.colorOption,
-          p_print_side: revisionForm.printSide,
+          p_paper_size:
+            revisionForm.paperSize,
+          p_color_option:
+            revisionForm.colorOption,
+          p_print_side:
+            revisionForm.printSide,
           p_urgency: revisionForm.urgency,
-          p_target_date: revisionForm.targetDate,
+          p_target_date:
+            revisionForm.targetDate,
           p_notes: null,
           p_file_name: fileName,
           p_file_size: fileSize,
           p_file_type: fileType,
           p_file_url: fileUrl,
-          p_drive_file_id: driveFileId,
-          p_drive_file_url: driveFileUrl,
         }
       );
 
       if (error) throw error;
 
       setSuccessMsg(
-        `${revisionRequest.id} berhasil diperbaiki dan dikirim ulang ke Portal Persetujuan.`
+        `${revisionRequest.id} berhasil diperbaiki dan dikirim ulang ke Kepala Sekolah.`
       );
 
       setRevisionRequest(null);
@@ -641,6 +689,12 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
       await fetchHistory();
       setFilter('MENUNGGU');
     } catch (err: any) {
+      if (uploadedPath) {
+        await supabase.storage
+          .from('photocopy-files')
+          .remove([uploadedPath]);
+      }
+
       console.error('Resubmit revision error:', err);
 
       const raw = String(err?.message || '');
@@ -829,7 +883,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
       ) : (
         <div className="space-y-2">
           {paginatedRequests.map((request) => {
-            const style = getStatusStyle(request.status);
+            const style = getStatusStyle(request.status, request.resubmittedAt);
 
             return (
               <div
@@ -877,6 +931,15 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                         <div className="mt-2 text-[10px] text-violet-800">
                           <strong>Revisi:</strong>{' '}
                           {request.revisionNotes}
+                        </div>
+                      )}
+
+                    {request.status === 'MENUNGGU' &&
+                      request.resubmittedAt && (
+                        <div className="mt-2 text-[10px] text-indigo-800">
+                          <strong>Sudah direvisi:</strong>{' '}
+                          menunggu review ulang Kepsek/Wakasek •{' '}
+                          {formatDate(request.resubmittedAt)}
                         </div>
                       )}
                   </div>
@@ -979,7 +1042,8 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
             <div className="p-6 space-y-4">
               {(() => {
                 const style = getStatusStyle(
-                  selectedRequest.status
+                  selectedRequest.status,
+                  selectedRequest.resubmittedAt
                 );
 
                 return (
@@ -998,6 +1062,24 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                   </div>
                 );
               })()}
+
+              {selectedRequest.status === 'MENUNGGU' &&
+                selectedRequest.resubmittedAt && (
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                    <div className="font-bold text-indigo-900 flex items-center gap-2">
+                      <RotateCcw className="w-4 h-4" />
+                      Sudah Direvisi
+                    </div>
+                    <p className="text-xs text-indigo-800 mt-2">
+                      Perbaikan telah dikirim ulang pada{' '}
+                      <strong>
+                        {formatDate(selectedRequest.resubmittedAt)}
+                      </strong>
+                      . Saat ini pengajuan menunggu review ulang
+                      Kepsek/Wakasek.
+                    </p>
+                  </div>
+                )}
 
               <div className="bg-slate-900 text-white rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
