@@ -16,6 +16,7 @@ import {
   RotateCcw,
   Clock3,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react';
 
 type AdminFilter = RequestStatus | 'ALL';
@@ -30,6 +31,7 @@ export const AdminManagement: React.FC = () => {
   const [selectedRequest, setSelectedRequest] = useState<AdminRequest | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [msg, setMsg] = useState('');
 
@@ -210,6 +212,53 @@ export const AdminManagement: React.FC = () => {
     }
   };
 
+  const deleteRequestPermanently = async (request: AdminRequest) => {
+    const firstConfirm = window.confirm(
+      `Hapus permanen data "${request.title}" (${request.id})?\n\n` +
+        'Data akan hilang dari Admin Kelola, Portal/riwayat aplikasi, dan Kelola Resource. ' +
+        'Gunakan fitur ini hanya untuk data dummy/testing.'
+    );
+
+    if (!firstConfirm) return;
+
+    const confirmationText = window.prompt(
+      'Untuk mencegah salah hapus, ketik HAPUS lalu tekan OK.'
+    );
+
+    if (confirmationText !== 'HAPUS') {
+      setErrorMsg('Penghapusan dibatalkan. Teks konfirmasi harus tepat: HAPUS');
+      return;
+    }
+
+    setDeletingId(request.id);
+    setErrorMsg('');
+    setMsg('');
+
+    try {
+      const { error } = await supabase.rpc(
+        'admin_delete_photocopy_request',
+        {
+          p_request_id: request.id,
+        }
+      );
+
+      if (error) throw error;
+
+      setMsg(
+        `${request.id} berhasil dihapus permanen. Data juga otomatis hilang dari Kelola Resource.`
+      );
+      setSelectedRequest(null);
+      await fetchRequests();
+    } catch (err: any) {
+      console.error('Permanent delete error:', err);
+      setErrorMsg(
+        err?.message || 'Gagal menghapus data pengajuan.'
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const exportCSV = () => {
     const headers = [
       'Tracking ID',
@@ -327,6 +376,12 @@ export const AdminManagement: React.FC = () => {
       {msg && <Notice text={msg} kind="success" onClose={() => setMsg('')} />}
       {errorMsg && <Notice text={errorMsg} kind="error" onClose={() => setErrorMsg('')} />}
 
+      <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-4 py-3 text-xs">
+        <strong>Khusus Admin SD:</strong> tombol <strong>Hapus</strong> digunakan untuk
+        membersihkan data dummy/testing. Penghapusan bersifat permanen dan otomatis
+        menghilangkan data yang sama dari Kelola Resource.
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Summary label="Menunggu Keputusan" value={counts.MENUNGGU || 0} icon={<Clock3 className="w-5 h-5" />} />
         <Summary label="Perlu Revisi" value={counts.PERLU_REVISI || 0} icon={<RotateCcw className="w-5 h-5" />} />
@@ -399,13 +454,26 @@ export const AdminManagement: React.FC = () => {
                     </td>
                     <td className="px-4 py-4 align-top">{badge(request.status)}</td>
                     <td className="px-4 py-4 align-top text-center">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRequest(request)}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg font-bold text-slate-700"
-                      >
-                        <Eye className="w-3.5 h-3.5" /> Detail
-                      </button>
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRequest(request)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg font-bold text-slate-700"
+                        >
+                          <Eye className="w-3.5 h-3.5" /> Detail
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => deleteRequestPermanently(request)}
+                          disabled={deletingId === request.id}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 border border-red-200 bg-red-50 hover:bg-red-100 rounded-lg font-bold text-red-700 disabled:opacity-50"
+                          title="Khusus Admin SD • gunakan hanya untuk data dummy/testing"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          {deletingId === request.id ? 'Menghapus...' : 'Hapus'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -484,6 +552,18 @@ export const AdminManagement: React.FC = () => {
                   <CheckCircle2 className="w-4 h-4" /> Tandai Selesai
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={() => deleteRequestPermanently(selectedRequest)}
+                disabled={deletingId === selectedRequest.id}
+                className="w-full py-3 border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                {deletingId === selectedRequest.id
+                  ? 'Menghapus Permanen...'
+                  : 'Hapus Permanen Data Dummy'}
+              </button>
             </div>
           </div>
         </div>
