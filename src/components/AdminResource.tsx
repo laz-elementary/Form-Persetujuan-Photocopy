@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { PhotocopyRequest } from '../types';
 import { supabase } from '../lib/supabase';
+import { jsPDF } from 'jspdf';
 import {
   AlertCircle,
   Building2,
   CheckCircle2,
+  Download,
   ExternalLink,
   FileText,
   History,
+  CalendarDays,
   Play,
   Printer,
   RefreshCw,
@@ -28,9 +31,7 @@ type SpecFilter =
   | 'F4'
   | 'A3'
   | 'BW'
-  | 'COLOR'
-  | 'SINGLE'
-  | 'DOUBLE';
+  | 'COLOR';
 
 const RESOURCE_STATUSES = ['DISETUJUI', 'SEDANG_DICETAK', 'SELESAI'];
 
@@ -40,6 +41,9 @@ export const AdminResource: React.FC = () => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [specFilter, setSpecFilter] = useState<SpecFilter>('ALL');
+  const [reportMonth, setReportMonth] = useState(
+    () => new Date().toISOString().slice(0, 7)
+  );
   const [selectedRequest, setSelectedRequest] =
     useState<ResourceRequest | null>(null);
 
@@ -129,6 +133,84 @@ export const AdminResource: React.FC = () => {
     .filter((r) => r.status === 'SELESAI')
     .reduce((total, request) => total + (request.totalSheets || 0), 0);
 
+  const completedDate = (request: ResourceRequest) =>
+    request.completedAt || request.printedAt || request.submittedAt;
+
+  const monthKey = (request: ResourceRequest) => {
+    const value = completedDate(request);
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value).slice(0, 7);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  const completedRequests = requests.filter(
+    (request) => request.status === 'SELESAI'
+  );
+
+  const monthlyRequests = completedRequests.filter(
+    (request) => monthKey(request) === reportMonth
+  );
+
+  const monthlySheets = monthlyRequests.reduce(
+    (total, request) => total + (request.totalSheets || 0),
+    0
+  );
+
+  const monthlyByPaper = {
+    A4: monthlyRequests
+      .filter((request) => request.paperSize === 'A4')
+      .reduce((total, request) => total + (request.totalSheets || 0), 0),
+    F4: monthlyRequests
+      .filter((request) => request.paperSize === 'F4')
+      .reduce((total, request) => total + (request.totalSheets || 0), 0),
+    A3: monthlyRequests
+      .filter((request) => request.paperSize === 'A3')
+      .reduce((total, request) => total + (request.totalSheets || 0), 0),
+  };
+
+  const monthlyByColor = {
+    BW: monthlyRequests
+      .filter((request) => request.colorOption === 'BW')
+      .reduce((total, request) => total + (request.totalSheets || 0), 0),
+    COLOR: monthlyRequests
+      .filter((request) => request.colorOption === 'COLOR')
+      .reduce((total, request) => total + (request.totalSheets || 0), 0),
+  };
+
+  const monthlySummary = useMemo(() => {
+    const summary = new Map<
+      string,
+      { jobs: number; sheets: number; a4: number; f4: number; a3: number }
+    >();
+
+    completedRequests.forEach((request) => {
+      const key = monthKey(request);
+      if (!key) return;
+
+      const current = summary.get(key) || {
+        jobs: 0,
+        sheets: 0,
+        a4: 0,
+        f4: 0,
+        a3: 0,
+      };
+
+      current.jobs += 1;
+      current.sheets += request.totalSheets || 0;
+
+      if (request.paperSize === 'A4') current.a4 += request.totalSheets || 0;
+      if (request.paperSize === 'F4') current.f4 += request.totalSheets || 0;
+      if (request.paperSize === 'A3') current.a3 += request.totalSheets || 0;
+
+      summary.set(key, current);
+    });
+
+    return Array.from(summary.entries())
+      .map(([month, data]) => ({ month, ...data }))
+      .sort((a, b) => b.month.localeCompare(a.month));
+  }, [requests]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
 
@@ -153,11 +235,6 @@ export const AdminResource: React.FC = () => {
           matchesSpec = request.paperSize === specFilter;
         } else if (specFilter === 'BW' || specFilter === 'COLOR') {
           matchesSpec = request.colorOption === specFilter;
-        } else if (
-          specFilter === 'SINGLE' ||
-          specFilter === 'DOUBLE'
-        ) {
-          matchesSpec = request.printSide === specFilter;
         }
 
         const matchesSearch =
@@ -205,6 +282,232 @@ export const AdminResource: React.FC = () => {
       dateStyle: 'medium',
       timeStyle: 'short',
     });
+  };
+
+  const formatMonthLabel = (value: string) => {
+    if (!value) return '-';
+    const [year, month] = value.split('-').map(Number);
+    if (!year || !month) return value;
+
+    return new Date(year, month - 1, 1).toLocaleDateString('id-ID', {
+      month: 'long',
+      year: 'numeric',
+    });
+  };
+
+  const safeFileName = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+
+  const escapeHtml = (value: unknown) =>
+    String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+
+  const downloadMonthlyExcel = () => {
+    const period = formatMonthLabel(reportMonth);
+
+    const detailRows = monthlyRequests
+      .map(
+        (request, index) => `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${escapeHtml(request.id)}</td>
+            <td>${escapeHtml(formatDate(completedDate(request)))}</td>
+            <td>${escapeHtml(request.teacherName)}</td>
+            <td>${escapeHtml(request.subjectClass)}</td>
+            <td>${escapeHtml(request.title)}</td>
+            <td>${escapeHtml(request.paperSize)}</td>
+            <td>${escapeHtml(
+              request.colorOption === 'BW' ? 'Hitam Putih' : 'Berwarna'
+            )}</td>
+            <td>${request.pagesCount}</td>
+            <td>${request.copiesCount}</td>
+            <td>${request.totalSheets || 0}</td>
+          </tr>`
+      )
+      .join('');
+
+    const summaryRows = monthlySummary
+      .map(
+        (row) => `
+          <tr>
+            <td>${escapeHtml(formatMonthLabel(row.month))}</td>
+            <td>${row.jobs}</td>
+            <td>${row.sheets}</td>
+            <td>${row.a4}</td>
+            <td>${row.f4}</td>
+            <td>${row.a3}</td>
+          </tr>`
+      )
+      .join('');
+
+    const html = `<!doctype html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<style>
+  table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px; }
+  th, td { border: 1px solid #999; padding: 5px; }
+  th { background: #e2e8f0; font-weight: bold; }
+  h1, h2, p { font-family: Arial, sans-serif; }
+</style>
+</head>
+<body>
+  <h1>Rekap Bulanan Resource - E-Photocopy</h1>
+  <p>Periode: ${escapeHtml(period)}</p>
+  <p>Total pekerjaan selesai: ${monthlyRequests.length}</p>
+  <p>Total kertas digunakan: ${monthlySheets} lembar</p>
+  <p>A4: ${monthlyByPaper.A4} | F4: ${monthlyByPaper.F4} | A3: ${monthlyByPaper.A3}</p>
+  <p>Hitam Putih: ${monthlyByColor.BW} | Berwarna: ${monthlyByColor.COLOR}</p>
+
+  <h2>Detail Periode</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>No</th>
+        <th>Tracking ID</th>
+        <th>Tanggal Selesai</th>
+        <th>Guru</th>
+        <th>Kelas/Mapel</th>
+        <th>Judul</th>
+        <th>Kertas</th>
+        <th>Warna</th>
+        <th>Halaman</th>
+        <th>Salinan</th>
+        <th>Total Lembar</th>
+      </tr>
+    </thead>
+    <tbody>${detailRows || '<tr><td colspan="11">Belum ada data selesai pada periode ini.</td></tr>'}</tbody>
+  </table>
+
+  <h2>Ringkasan Seluruh Bulan</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Periode</th>
+        <th>Pekerjaan</th>
+        <th>Total Lembar</th>
+        <th>A4</th>
+        <th>F4</th>
+        <th>A3</th>
+      </tr>
+    </thead>
+    <tbody>${summaryRows || '<tr><td colspan="6">Belum ada data selesai.</td></tr>'}</tbody>
+  </table>
+</body>
+</html>`;
+
+    const blob = new Blob(['\ufeff', html], {
+      type: 'application/vnd.ms-excel;charset=utf-8;',
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `rekap-resource-${safeFileName(reportMonth)}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadMonthlyPdf = () => {
+    const doc = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 14;
+    let y = 15;
+
+    const addHeader = () => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(15);
+      doc.text('Rekap Bulanan Resource - E-Photocopy', margin, y);
+      y += 7;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(`Periode: ${formatMonthLabel(reportMonth)}`, margin, y);
+      y += 5;
+      doc.text(
+        `Pekerjaan selesai: ${monthlyRequests.length} | Total kertas: ${monthlySheets} lembar | A4: ${monthlyByPaper.A4} | F4: ${monthlyByPaper.F4} | A3: ${monthlyByPaper.A3}`,
+        margin,
+        y
+      );
+      y += 5;
+      doc.text(
+        `Hitam Putih: ${monthlyByColor.BW} lembar | Berwarna: ${monthlyByColor.COLOR} lembar`,
+        margin,
+        y
+      );
+      y += 8;
+    };
+
+    const ensureSpace = (height = 18) => {
+      if (y + height > pageHeight - 12) {
+        doc.addPage();
+        y = 15;
+        addHeader();
+      }
+    };
+
+    addHeader();
+
+    if (monthlyRequests.length === 0) {
+      doc.setFontSize(11);
+      doc.text('Belum ada pekerjaan selesai pada periode ini.', margin, y);
+    } else {
+      monthlyRequests.forEach((request, index) => {
+        ensureSpace(22);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(
+          `${index + 1}. ${request.id} | ${formatDate(
+            completedDate(request)
+          )} | ${request.teacherName} | ${request.subjectClass}`,
+          margin,
+          y
+        );
+        y += 5;
+
+        doc.setFont('helvetica', 'normal');
+        const titleLines = doc.splitTextToSize(
+          request.title,
+          pageWidth - margin * 2
+        );
+        doc.text(titleLines, margin, y);
+        y += titleLines.length * 4;
+
+        doc.text(
+          `${request.paperSize} | ${
+            request.colorOption === 'BW' ? 'Hitam Putih' : 'Berwarna'
+          } | ${request.pagesCount} halaman x ${
+            request.copiesCount
+          } salinan | ${request.totalSheets || 0} lembar`,
+          margin,
+          y
+        );
+        y += 7;
+      });
+
+      ensureSpace(15);
+      doc.setDrawColor(180);
+      doc.line(margin, y, pageWidth - margin, y);
+      y += 6;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(`TOTAL: ${monthlySheets} lembar`, margin, y);
+    }
+
+    doc.save(`rekap-resource-${safeFileName(reportMonth)}.pdf`);
   };
 
   const updatePrintStatus = async (
@@ -434,6 +737,144 @@ export const AdminResource: React.FC = () => {
         />
       </div>
 
+      {/* REKAP BULANAN */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="p-5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <CalendarDays className="w-5 h-5 text-blue-600" />
+              <h3 className="font-bold text-slate-900">Rekap Bulanan Pemakaian Kertas</h3>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Rekap dihitung dari pekerjaan berstatus selesai pada bulan yang dipilih.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="month"
+              value={reportMonth}
+              onChange={(e) => setReportMonth(e.target.value)}
+              className="px-3 py-2.5 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 bg-white"
+            />
+
+            <button
+              type="button"
+              onClick={downloadMonthlyPdf}
+              className="px-3 py-2.5 rounded-lg bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-xs font-bold flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Download PDF
+            </button>
+
+            <button
+              type="button"
+              onClick={downloadMonthlyExcel}
+              className="px-3 py-2.5 rounded-lg bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-xs font-bold flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Download Excel
+            </button>
+          </div>
+        </div>
+
+        <div className="p-5">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            <MiniStat
+              label="Pekerjaan Selesai"
+              value={monthlyRequests.length}
+              suffix="job"
+            />
+            <MiniStat
+              label="Total Kertas"
+              value={monthlySheets}
+              suffix="lembar"
+            />
+            <MiniStat
+              label="A4"
+              value={monthlyByPaper.A4}
+              suffix="lembar"
+            />
+            <MiniStat
+              label="F4"
+              value={monthlyByPaper.F4}
+              suffix="lembar"
+            />
+            <MiniStat
+              label="A3"
+              value={monthlyByPaper.A3}
+              suffix="lembar"
+            />
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="text-[10px] uppercase font-bold text-slate-500">
+                Hitam Putih
+              </div>
+              <div className="text-lg font-extrabold text-slate-900 mt-1">
+                {monthlyByColor.BW}{' '}
+                <span className="text-[10px] font-semibold text-slate-500">
+                  lembar
+                </span>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="text-[10px] uppercase font-bold text-slate-500">
+                Berwarna
+              </div>
+              <div className="text-lg font-extrabold text-slate-900 mt-1">
+                {monthlyByColor.COLOR}{' '}
+                <span className="text-[10px] font-semibold text-slate-500">
+                  lembar
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 overflow-x-auto">
+            <div className="text-xs font-bold text-slate-800 mb-2">
+              Ringkasan per Bulan
+            </div>
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500">
+                  <th className="text-left px-3 py-2 border-y border-slate-200">Periode</th>
+                  <th className="text-right px-3 py-2 border-y border-slate-200">Pekerjaan</th>
+                  <th className="text-right px-3 py-2 border-y border-slate-200">Total Lembar</th>
+                  <th className="text-right px-3 py-2 border-y border-slate-200">A4</th>
+                  <th className="text-right px-3 py-2 border-y border-slate-200">F4</th>
+                  <th className="text-right px-3 py-2 border-y border-slate-200">A3</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlySummary.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-4 text-center text-slate-400">
+                      Belum ada riwayat pekerjaan selesai.
+                    </td>
+                  </tr>
+                ) : (
+                  monthlySummary.map((row) => (
+                    <tr key={row.month} className="border-b border-slate-100">
+                      <td className="px-3 py-2.5 font-semibold text-slate-700">
+                        {formatMonthLabel(row.month)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-slate-600">{row.jobs}</td>
+                      <td className="px-3 py-2.5 text-right font-bold text-slate-900">{row.sheets}</td>
+                      <td className="px-3 py-2.5 text-right text-slate-600">{row.a4}</td>
+                      <td className="px-3 py-2.5 text-right text-slate-600">{row.f4}</td>
+                      <td className="px-3 py-2.5 text-right text-slate-600">{row.a3}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       {/* Satu filter bar untuk satu rekap */}
       <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex flex-col lg:flex-row gap-3">
         <div className="relative flex-1">
@@ -473,8 +914,6 @@ export const AdminResource: React.FC = () => {
           <option value="A3">Kertas A3</option>
           <option value="BW">Hitam Putih</option>
           <option value="COLOR">Berwarna</option>
-          <option value="SINGLE">1 Sisi</option>
-          <option value="DOUBLE">2 Sisi</option>
         </select>
       </div>
 
@@ -546,11 +985,6 @@ export const AdminResource: React.FC = () => {
                         {request.colorOption === 'BW'
                           ? 'Hitam Putih'
                           : 'Berwarna'}
-                      </span>
-                      <span className="px-2.5 py-1.5 rounded-lg bg-slate-100">
-                        {request.printSide === 'DOUBLE'
-                          ? '2 Sisi'
-                          : '1 Sisi'}
                       </span>
                       <span className="px-2.5 py-1.5 rounded-lg bg-slate-100">
                         Target: {formatDate(request.targetDate)}
@@ -673,10 +1107,6 @@ export const AdminResource: React.FC = () => {
                     selectedRequest.colorOption === 'BW'
                       ? 'Hitam Putih'
                       : 'Berwarna'
-                  } • ${
-                    selectedRequest.printSide === 'DOUBLE'
-                      ? '2 Sisi'
-                      : '1 Sisi'
                   }`}
                 />
               </div>
@@ -806,6 +1236,26 @@ const SummaryCard: React.FC<{
       )}
     </div>
     <div className="text-[10px] text-slate-400 mt-1">{helper}</div>
+  </div>
+);
+
+const MiniStat: React.FC<{
+  label: string;
+  value: number;
+  suffix?: string;
+}> = ({ label, value, suffix }) => (
+  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+    <div className="text-[10px] uppercase font-bold text-slate-500">
+      {label}
+    </div>
+    <div className="text-lg font-extrabold text-slate-900 mt-1">
+      {value}{' '}
+      {suffix && (
+        <span className="text-[10px] font-semibold text-slate-500">
+          {suffix}
+        </span>
+      )}
+    </div>
   </div>
 );
 
