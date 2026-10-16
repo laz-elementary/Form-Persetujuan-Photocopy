@@ -72,8 +72,9 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
   const [colorOption, setColorOption] =
     useState<ColorOption>('BW');
 
-  const [printSide, setPrintSide] =
-    useState<PrintSide>('DOUBLE');
+  // Pilihan sisi cetak dihapus dari formulir.
+  // Nilai SINGLE dipertahankan untuk kompatibilitas database lama.
+  const printSide: PrintSide = 'SINGLE';
 
   const [urgency, setUrgency] =
     useState<Urgency>('NORMAL');
@@ -105,9 +106,7 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
   // =====================================================
 
   const calculatedSheets =
-    printSide === 'DOUBLE'
-      ? Math.ceil(pagesCount / 2) * copiesCount
-      : pagesCount * copiesCount;
+    pagesCount * copiesCount;
 
   // =====================================================
   // FILE HANDLING
@@ -1018,7 +1017,7 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
         <Section
           number="3"
           title="Spesifikasi Fotokopi"
-          subtitle="Atur jumlah, ukuran kertas, warna, dan sisi cetak"
+          subtitle="Atur jumlah, ukuran kertas, warna, dan prioritas"
         >
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <NumberInput
@@ -1059,20 +1058,6 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
               options={[
                 ['BW', 'Hitam Putih'],
                 ['COLOR', 'Berwarna'],
-              ]}
-            />
-
-            <SelectInput
-              label="Sisi Cetak"
-              value={printSide}
-              onChange={(value) =>
-                setPrintSide(
-                  value as PrintSide
-                )
-              }
-              options={[
-                ['SINGLE', '1 Sisi'],
-                ['DOUBLE', '2 Sisi'],
               ]}
             />
 
@@ -1128,10 +1113,7 @@ export const TeacherSubmissionForm: React.FC<FormProps> = ({
 
               <div className="text-[11px] text-blue-700 mt-1">
                 {pagesCount} halaman ×{' '}
-                {copiesCount} salinan •{' '}
-                {printSide === 'DOUBLE'
-                  ? '2 sisi'
-                  : '1 sisi'}
+                {copiesCount} salinan
               </div>
             </div>
           </div>
