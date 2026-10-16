@@ -87,8 +87,8 @@ export const AdminResource: React.FC = () => {
     completedAt: row.completed_at || undefined,
   });
 
-  const fetchRequests = async () => {
-    setLoading(true);
+  const fetchRequests = async (silent = false) => {
+    if (!silent) setLoading(true);
     setErrorMsg('');
 
     try {
@@ -109,12 +109,18 @@ export const AdminResource: React.FC = () => {
         err?.message || 'Gagal memuat rekap fotokopi Resource.'
       );
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchRequests();
+
+    const timer = window.setInterval(() => {
+      fetchRequests(true);
+    }, 10000);
+
+    return () => window.clearInterval(timer);
   }, []);
 
   const approvedCount = requests.filter(
