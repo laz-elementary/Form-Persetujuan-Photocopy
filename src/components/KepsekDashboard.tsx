@@ -71,8 +71,12 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     fileName: row.file_name || 'Dokumen bahan ajar',
     fileSize: row.file_size || '',
     fileType: row.file_type || '',
-    fileUrl: row.file_url || undefined,
-    driveFolderUrl: row.drive_folder_url || undefined,
+    fileUrl:
+      row.drive_file_url ||
+      row.file_url ||
+      undefined,
+    driveFolderUrl:
+      row.drive_folder_url || undefined,
     pagesCount: row.pages_count,
     copiesCount: row.copies_count,
     totalSheets: row.total_sheets,
@@ -144,29 +148,49 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     setErrorMsg('');
 
     try {
-      if (request.fileType === 'url/link') {
-        window.open(
-          request.fileUrl,
+      const rawUrl = request.fileUrl.trim();
+
+      // Pengajuan baru: file disimpan di Google Drive / URL langsung.
+      // Jangan kirim URL http(s) ke Supabase Storage karena akan
+      // menghasilkan error "Object not found".
+      if (
+        request.fileType === 'url/link' ||
+        /^https?:\/\//i.test(rawUrl)
+      ) {
+        const opened = window.open(
+          rawUrl,
           '_blank',
           'noopener,noreferrer'
         );
+
+        if (!opened) {
+          window.location.href = rawUrl;
+        }
+
         return;
       }
 
+      // Fallback untuk pengajuan lama yang masih menyimpan
+      // storage path Supabase di file_url.
       const { data, error } = await supabase.storage
         .from('photocopy-files')
-        .createSignedUrl(request.fileUrl, 60 * 60);
+        .createSignedUrl(rawUrl, 60 * 60);
 
       if (error) throw error;
+
       if (!data?.signedUrl) {
         throw new Error('File tidak dapat dibuka.');
       }
 
-      window.open(
+      const opened = window.open(
         data.signedUrl,
         '_blank',
         'noopener,noreferrer'
       );
+
+      if (!opened) {
+        window.location.href = data.signedUrl;
+      }
     } catch (err: any) {
       console.error('Open document error:', err);
       setErrorMsg(
