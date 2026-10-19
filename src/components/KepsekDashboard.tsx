@@ -193,15 +193,11 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         request.fileType === 'url/link' ||
         /^https?:\/\//i.test(rawUrl)
       ) {
-        const opened = window.open(
+        window.open(
           rawUrl,
           '_blank',
           'noopener,noreferrer'
         );
-
-        if (!opened) {
-          window.location.href = rawUrl;
-        }
 
         return;
       }
@@ -218,15 +214,11 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         throw new Error('File tidak dapat dibuka.');
       }
 
-      const opened = window.open(
+      window.open(
         data.signedUrl,
         '_blank',
         'noopener,noreferrer'
       );
-
-      if (!opened) {
-        window.location.href = data.signedUrl;
-      }
     } catch (err: any) {
       console.error('Open document error:', err);
       setErrorMsg(
