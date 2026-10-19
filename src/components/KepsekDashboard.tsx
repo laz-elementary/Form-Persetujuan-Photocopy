@@ -40,9 +40,12 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
   canReview,
   onRequestUpdated,
 }) => {
+  const [staffRole, setStaffRole] = useState<string>('');
+
   const reviewEnabled =
-    canReview ??
-    !reviewerName.toLowerCase().includes('administrator');
+    staffRole === 'KEPSEK' ||
+    staffRole === 'WAKASEK' ||
+    (staffRole === '' && canReview === true);
 
   const [requests, setRequests] = useState<DashboardRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,15 +105,47 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     resubmittedAt: row.resubmitted_at || undefined,
   });
 
+  const resolveStaffRole = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const email = user?.email?.trim();
+
+      if (!email) {
+        setStaffRole('');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('staff_access')
+        .select('role, active')
+        .ilike('email', email)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      const role =
+        data?.active === true
+          ? String(data?.role || '').trim().toUpperCase()
+          : '';
+
+      setStaffRole(role);
+    } catch (err) {
+      console.error('Resolve approval role error:', err);
+      setStaffRole('');
+    }
+  };
+
   const fetchRequests = async () => {
     setLoading(true);
     setErrorMsg('');
 
     try {
-      const { data, error } = await supabase
-        .from('photocopy_requests')
-        .select('*')
-        .order('submitted_at', { ascending: false });
+      const { data, error } = await supabase.rpc(
+        'approval_portal_list_requests'
+      );
 
       if (error) throw error;
 
@@ -127,6 +162,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
   };
 
   useEffect(() => {
+    resolveStaffRole();
     fetchRequests();
   }, []);
 
@@ -204,7 +240,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
   const approveRequest = async (request: DashboardRequest) => {
     if (!reviewEnabled) {
       setErrorMsg(
-        'Akun Administrator hanya memiliki akses pantau. Keputusan hanya dapat dilakukan oleh Kepala Sekolah.'
+        'Keputusan hanya dapat dilakukan oleh Kepala Sekolah atau Wakil Kepala Sekolah.'
       );
       return;
     }
@@ -222,29 +258,14 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     setSuccessMsg('');
 
     try {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError || !user) {
-        throw new Error(
-          'Sesi login tidak ditemukan. Silakan login ulang.'
-        );
-      }
-
-      const { error } = await supabase
-        .from('photocopy_requests')
-        .update({
-          status: 'DISETUJUI',
-          reviewed_at: new Date().toISOString(),
-          reviewed_by: reviewerName,
-          reviewed_by_email: user.email || null,
-          approval_notes: null,
-          rejection_reason: null,
-        })
-        .eq('id', request.id)
-        .eq('status', 'MENUNGGU');
+      const { error } = await supabase.rpc(
+        'review_photocopy_request',
+        {
+          p_request_id: request.id,
+          p_action: 'APPROVE',
+          p_notes: null,
+        }
+      );
 
       if (error) throw error;
 
@@ -270,7 +291,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
   ) => {
     if (!reviewEnabled) {
       setErrorMsg(
-        'Akun Administrator hanya memiliki akses pantau.'
+        'Keputusan hanya dapat dilakukan oleh Kepala Sekolah atau Wakil Kepala Sekolah.'
       );
       return;
     }
@@ -283,6 +304,13 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
 
   const submitAction = async () => {
     if (!actionTarget || !actionType) return;
+
+    if (!reviewEnabled) {
+      setErrorMsg(
+        'Keputusan hanya dapat dilakukan oleh Kepala Sekolah atau Wakil Kepala Sekolah.'
+      );
+      return;
+    }
 
     if (!actionText.trim()) {
       setErrorMsg(
@@ -298,51 +326,25 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     setSuccessMsg('');
 
     try {
-      if (actionType === 'REVISION') {
-        const { error } = await supabase.rpc(
-          'kepsek_request_revision',
-          {
-            p_request_id: actionTarget.id,
-            p_revision_notes: actionText.trim(),
-          }
-        );
-
-        if (error) throw error;
-
-        setSuccessMsg(
-          `${actionTarget.id} dikembalikan kepada guru untuk diperbaiki.`
-        );
-      } else {
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          throw new Error(
-            'Sesi login tidak ditemukan. Silakan login ulang.'
-          );
+      const { error } = await supabase.rpc(
+        'review_photocopy_request',
+        {
+          p_request_id: actionTarget.id,
+          p_action:
+            actionType === 'REVISION'
+              ? 'REVISE'
+              : 'REJECT',
+          p_notes: actionText.trim(),
         }
+      );
 
-        const { error } = await supabase
-          .from('photocopy_requests')
-          .update({
-            status: 'DITOLAK',
-            reviewed_at: new Date().toISOString(),
-            reviewed_by: reviewerName,
-            reviewed_by_email: user.email || null,
-            rejection_reason: actionText.trim(),
-            approval_notes: null,
-          })
-          .eq('id', actionTarget.id)
-          .eq('status', 'MENUNGGU');
+      if (error) throw error;
 
-        if (error) throw error;
-
-        setSuccessMsg(
-          `${actionTarget.id} ditolak dan tersimpan dalam riwayat.`
-        );
-      }
+      setSuccessMsg(
+        actionType === 'REVISION'
+          ? `${actionTarget.id} dikembalikan kepada guru untuk diperbaiki.`
+          : `${actionTarget.id} ditolak dan tersimpan dalam riwayat.`
+      );
 
       setActionTarget(null);
       setActionType(null);
@@ -359,6 +361,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
       setSubmittingId(null);
     }
   };
+
 
   const counts = useMemo(
     () => ({
@@ -481,7 +484,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 mb-3">
             <ShieldCheck className="w-3.5 h-3.5" />
-            Portal Kepala Sekolah
+            Portal Persetujuan
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-bold">
@@ -490,8 +493,8 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
 
           <p className="text-xs sm:text-sm text-slate-300 mt-1">
             {reviewEnabled
-              ? 'Buka file dan berikan keputusan langsung dari daftar.'
-              : 'Mode pantau Administrator. Keputusan hanya dapat dilakukan oleh Kepala Sekolah.'}
+              ? 'Buka file dan berikan keputusan langsung dari daftar. Kepala Sekolah dan Wakil Kepala Sekolah memiliki akses yang sama.'
+              : 'Mode pantau Administrator. Keputusan hanya dapat dilakukan oleh Kepala Sekolah atau Wakil Kepala Sekolah.'}
           </p>
         </div>
 
