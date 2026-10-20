@@ -139,6 +139,37 @@ export const AdminResource: React.FC = () => {
     .filter((r) => r.status === 'SELESAI')
     .reduce((total, request) => total + (request.totalSheets || 0), 0);
 
+  const statusTabs: Array<{
+    value: StatusFilter;
+    label: string;
+    count: number;
+  }> = [
+    {
+      value: 'ALL',
+      label: 'Semua',
+      count: requests.length,
+    },
+    {
+      value: 'DISETUJUI',
+      label: 'Sudah ACC',
+      count: approvedCount,
+    },
+    {
+      value: 'SEDANG_DICETAK',
+      label: 'Sedang Dicetak',
+      count: printingCount,
+    },
+    {
+      value: 'SELESAI',
+      label: 'Selesai',
+      count: completedCount,
+    },
+  ];
+
+  const activeStatusLabel =
+    statusTabs.find((tab) => tab.value === statusFilter)?.label ||
+    'Semua';
+
   const completedDate = (request: ResourceRequest) =>
     request.completedAt || request.printedAt || request.submittedAt;
 
@@ -571,13 +602,11 @@ export const AdminResource: React.FC = () => {
     setOpeningId(request.id);
     setErrorMsg('');
 
-    // Dibuka langsung saat klik supaya browser tidak memblokir sebagai popup.
     const newTab = window.open('about:blank', '_blank');
 
     try {
       const rawUrl = request.fileUrl.trim();
 
-      // Berlaku untuk Google Drive, Canva, URL langsung, dan public URL.
       if (/^https?:\/\//i.test(rawUrl)) {
         if (newTab) {
           newTab.opener = null;
@@ -588,7 +617,6 @@ export const AdminResource: React.FC = () => {
         return;
       }
 
-      // File lama di Supabase Storage disimpan sebagai storage path.
       const { data, error } = await supabase.storage
         .from('photocopy-files')
         .createSignedUrl(rawUrl, 60 * 60);
@@ -670,7 +698,7 @@ export const AdminResource: React.FC = () => {
 
         <button
           type="button"
-          onClick={fetchRequests}
+          onClick={() => fetchRequests()}
           disabled={loading}
           className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xs rounded-lg flex items-center gap-2"
         >
@@ -714,7 +742,6 @@ export const AdminResource: React.FC = () => {
         </div>
       )}
 
-      {/* Ringkasan - bukan tab */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <SummaryCard
           label="Sudah ACC"
@@ -786,31 +813,11 @@ export const AdminResource: React.FC = () => {
 
         <div className="p-5">
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <MiniStat
-              label="Pekerjaan Selesai"
-              value={monthlyRequests.length}
-              suffix="job"
-            />
-            <MiniStat
-              label="Total Kertas"
-              value={monthlySheets}
-              suffix="lembar"
-            />
-            <MiniStat
-              label="A4"
-              value={monthlyByPaper.A4}
-              suffix="lembar"
-            />
-            <MiniStat
-              label="F4"
-              value={monthlyByPaper.F4}
-              suffix="lembar"
-            />
-            <MiniStat
-              label="A3"
-              value={monthlyByPaper.A3}
-              suffix="lembar"
-            />
+            <MiniStat label="Pekerjaan Selesai" value={monthlyRequests.length} suffix="job" />
+            <MiniStat label="Total Kertas" value={monthlySheets} suffix="lembar" />
+            <MiniStat label="A4" value={monthlyByPaper.A4} suffix="lembar" />
+            <MiniStat label="F4" value={monthlyByPaper.F4} suffix="lembar" />
+            <MiniStat label="A3" value={monthlyByPaper.A3} suffix="lembar" />
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-3">
@@ -881,7 +888,31 @@ export const AdminResource: React.FC = () => {
         </div>
       </div>
 
-      {/* Satu filter bar untuk satu rekap */}
+      {/* TAB STATUS RESOURCE */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-2 overflow-x-auto">
+        <div className="flex items-center gap-1 min-w-max">
+          {statusTabs.map((tab) => {
+            const active = statusFilter === tab.value;
+
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => setStatusFilter(tab.value)}
+                className={`px-4 py-2.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                  active
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                {tab.label} ({tab.count})
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* SEARCH + FILTER SPESIFIKASI */}
       <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex flex-col lg:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -889,23 +920,10 @@ export const AdminResource: React.FC = () => {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari guru, kelas, judul, atau Tracking ID..."
+            placeholder={`Cari di ${activeStatusLabel}: guru, kelas, judul, atau Tracking ID...`}
             className="w-full border border-slate-200 rounded-lg pl-9 pr-3 py-2.5 text-xs outline-none focus:border-blue-400"
           />
         </div>
-
-        <select
-          value={statusFilter}
-          onChange={(e) =>
-            setStatusFilter(e.target.value as StatusFilter)
-          }
-          className="px-3 py-2.5 border border-slate-200 rounded-lg text-xs font-semibold bg-white text-slate-700"
-        >
-          <option value="ALL">Semua Status</option>
-          <option value="DISETUJUI">Sudah ACC / Siap Diproses</option>
-          <option value="SEDANG_DICETAK">Sedang Dicetak</option>
-          <option value="SELESAI">Selesai</option>
-        </select>
 
         <select
           value={specFilter}
@@ -926,9 +944,16 @@ export const AdminResource: React.FC = () => {
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
           <div>
-            <h3 className="font-bold text-slate-900">Semua Rekap Resource</h3>
+            <h3 className="font-bold text-slate-900">
+              {activeStatusLabel === 'Semua'
+                ? 'Semua Rekap Resource'
+                : activeStatusLabel}
+            </h3>
             <p className="text-xs text-slate-500 mt-0.5">
               {filtered.length} data ditampilkan
+              {search.trim()
+                ? ` • hasil pencarian "${search.trim()}"`
+                : ''}
             </p>
           </div>
         </div>
@@ -944,7 +969,7 @@ export const AdminResource: React.FC = () => {
               Belum ada data
             </div>
             <div className="text-xs text-slate-500 mt-1">
-              Pengajuan yang sudah ACC akan otomatis muncul di sini.
+              Tidak ada data pada kategori {activeStatusLabel}.
             </div>
           </div>
         ) : (
