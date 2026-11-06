@@ -360,7 +360,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
       MENUNGGU: requests.filter(
         (r) => r.status === 'MENUNGGU' && !r.resubmittedAt
       ).length,
-      SUDAH_DIREVISI: requests.filter(
+      SUDAH_DIPERBAIKI: requests.filter(
         (r) => r.status === 'MENUNGGU' && !!r.resubmittedAt
       ).length,
       PERLU_REVISI: requests.filter(
@@ -397,7 +397,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
             ].includes(r.status)
           : selectedStatus === 'MENUNGGU'
             ? r.status === 'MENUNGGU' && !r.resubmittedAt
-            : selectedStatus === 'SUDAH_DIREVISI'
+            : selectedStatus === 'SUDAH_DIPERBAIKI'
               ? r.status === 'MENUNGGU' && !!r.resubmittedAt
               : r.status === selectedStatus);
 
@@ -418,7 +418,7 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
     if (status === 'MENUNGGU' && resubmittedAt) {
       return (
         <span className="px-2 py-1 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">
-          SUDAH DIREVISI • REVIEW ULANG
+          SUDAH DIPERBAIKI • REVIEW ULANG
         </span>
       );
     }
@@ -540,10 +540,10 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
         />
 
         <Metric
-          label="Sudah Direvisi"
-          value={counts.SUDAH_DIREVISI}
+          label="Sudah Diperbaiki"
+          value={counts.SUDAH_DIPERBAIKI}
           onClick={() =>
-            setSelectedStatus('SUDAH_DIREVISI')
+            setSelectedStatus('SUDAH_DIPERBAIKI')
           }
           className="bg-indigo-50 border-indigo-200 text-indigo-800"
         />
@@ -584,8 +584,8 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
           {[
             ['MENUNGGU', `Menunggu (${counts.MENUNGGU})`],
             [
-              'SUDAH_DIREVISI',
-              `Sudah Direvisi (${counts.SUDAH_DIREVISI})`,
+              'SUDAH_DIPERBAIKI',
+              `Sudah Diperbaiki (${counts.SUDAH_DIPERBAIKI})`,
             ],
             [
               'PERLU_REVISI',
@@ -690,13 +690,13 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({
                     {request.status === 'MENUNGGU' &&
                       request.resubmittedAt && (
                         <div className="mt-2 text-[11px] text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
-                          <strong>Sudah direvisi oleh guru.</strong>{' '}
+                          <strong>Sudah diperbaiki oleh guru.</strong>{' '}
                           Dikirim ulang {new Date(
                             request.resubmittedAt
                           ).toLocaleString('id-ID', {
                             dateStyle: 'medium',
                             timeStyle: 'short',
-                          })}. Silakan review ulang.
+                          })}. File terbaru sudah menjadi dokumen utama. Silakan buka file dan review ulang.
                         </div>
                       )}
                   </div>
