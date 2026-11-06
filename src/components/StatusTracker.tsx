@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { uploadFileToDrive } from '../lib/driveUpload';
 import {
   Clock,
   CheckCircle2,
@@ -27,7 +28,7 @@ interface StatusTrackerProps {
 type HistoryFilter =
   | 'SEMUA'
   | 'MENUNGGU'
-  | 'SUDAH_DIREVISI'
+  | 'SUDAH_DIPERBAIKI'
   | 'PERLU_REVISI'
   | 'DISETUJUI'
   | 'SEDANG_DICETAK'
@@ -349,8 +350,8 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
         className:
           'bg-indigo-100 text-indigo-700 border-indigo-200',
         cardBorder: 'border-indigo-200',
-        label: 'SUDAH DIREVISI',
-        shortLabel: 'Sudah Direvisi',
+        label: 'SUDAH DIPERBAIKI',
+        shortLabel: 'Sudah Diperbaiki',
         icon: <RotateCcw className="w-4 h-4" />,
       };
     }
@@ -423,7 +424,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
       MENUNGGU: requests.filter(
         (r) => r.status === 'MENUNGGU' && !r.resubmittedAt
       ).length,
-      SUDAH_DIREVISI: requests.filter(
+      SUDAH_DIPERBAIKI: requests.filter(
         (r) => r.status === 'MENUNGGU' && !!r.resubmittedAt
       ).length,
       PERLU_REVISI: requests.filter(
@@ -454,7 +455,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
         (filter === 'MENUNGGU'
           ? request.status === 'MENUNGGU' &&
             !request.resubmittedAt
-          : filter === 'SUDAH_DIREVISI'
+          : filter === 'SUDAH_DIPERBAIKI'
             ? request.status === 'MENUNGGU' &&
               !!request.resubmittedAt
             : request.status === filter);
@@ -503,9 +504,9 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
       count: counts.MENUNGGU,
     },
     {
-      value: 'SUDAH_DIREVISI',
-      label: 'Sudah Direvisi',
-      count: counts.SUDAH_DIREVISI,
+      value: 'SUDAH_DIPERBAIKI',
+      label: 'Sudah Diperbaiki',
+      count: counts.SUDAH_DIPERBAIKI,
     },
     {
       value: 'PERLU_REVISI',
@@ -555,11 +556,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
   };
 
   const revisionSheets =
-    revisionForm.printSide === 'DOUBLE'
-      ? Math.ceil(revisionForm.pagesCount / 2) *
-        revisionForm.copiesCount
-      : revisionForm.pagesCount *
-        revisionForm.copiesCount;
+    revisionForm.pagesCount * revisionForm.copiesCount;
 
   const submitRevision = async (
     event: React.FormEvent
@@ -587,65 +584,38 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
       return;
     }
 
+    if (!replacementFile) {
+      setErrorMsg(
+        'File hasil perbaikan wajib diunggah sebelum pengajuan dikirim ulang.'
+      );
+      return;
+    }
+
     setRevisionSubmitting(true);
     setErrorMsg('');
     setSuccessMsg('');
 
-    let uploadedPath: string | null = null;
-
     try {
-      let fileName: string | null = null;
-      let fileSize: string | null = null;
-      let fileType: string | null = null;
-      let fileUrl: string | null = null;
-
-      if (replacementFile) {
-        if (
-          replacementFile.size >
-          20 * 1024 * 1024
-        ) {
-          throw new Error(
-            'Ukuran file maksimal 20 MB.'
-          );
-        }
-
-        let safeName = replacementFile.name
-          .replace(/\s+/g, '_')
-          .replace(/[^a-zA-Z0-9._-]/g, '');
-
-        if (!safeName) safeName = 'document';
-
-        uploadedPath = `${
-          revisionRequest.id
-        }/revision-${Date.now()}-${safeName}`;
-
-        const { error: uploadError } =
-          await supabase.storage
-            .from('photocopy-files')
-            .upload(
-              uploadedPath,
-              replacementFile,
-              {
-                cacheControl: '3600',
-                upsert: false,
-                contentType:
-                  replacementFile.type ||
-                  'application/octet-stream',
-              }
-            );
-
-        if (uploadError) throw uploadError;
-
-        fileName = replacementFile.name;
-        fileSize = `${(
-          replacementFile.size /
-          (1024 * 1024)
-        ).toFixed(1)} MB`;
-        fileType =
-          replacementFile.type ||
-          'application/octet-stream';
-        fileUrl = uploadedPath;
+      if (
+        replacementFile.size >
+        20 * 1024 * 1024
+      ) {
+        throw new Error(
+          'Ukuran file maksimal 20 MB.'
+        );
       }
+
+      const revisionNumber =
+        (revisionRequest.revisionCount || 0) + 1;
+
+      const driveUpload = await uploadFileToDrive(
+        replacementFile,
+        {
+          trackingId: revisionRequest.id,
+          teacherName: revisionRequest.teacherName,
+          title: `${revisionForm.title.trim()} - REVISI ${revisionNumber}`,
+        }
+      );
 
       const { error } = await supabase.rpc(
         'teacher_resubmit_revision',
@@ -671,30 +641,26 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
           p_target_date:
             revisionForm.targetDate,
           p_notes: null,
-          p_file_name: fileName,
-          p_file_size: fileSize,
-          p_file_type: fileType,
-          p_file_url: fileUrl,
+          p_file_name: driveUpload.fileName,
+          p_file_size: driveUpload.fileSize,
+          p_file_type: driveUpload.fileType,
+          p_file_url: driveUpload.fileUrl,
+          p_drive_file_id: driveUpload.fileId,
+          p_drive_file_url: driveUpload.fileUrl,
         }
       );
 
       if (error) throw error;
 
       setSuccessMsg(
-        `${revisionRequest.id} berhasil diperbaiki dan dikirim ulang ke Kepala Sekolah.`
+        `${revisionRequest.id} berhasil diperbaiki dan dikirim ulang untuk review Kepsek/Wakasek.`
       );
 
       setRevisionRequest(null);
       setReplacementFile(null);
       await fetchHistory();
-      setFilter('MENUNGGU');
+      setFilter('SUDAH_DIPERBAIKI');
     } catch (err: any) {
-      if (uploadedPath) {
-        await supabase.storage
-          .from('photocopy-files')
-          .remove([uploadedPath]);
-      }
-
       console.error('Resubmit revision error:', err);
 
       const raw = String(err?.message || '');
@@ -781,11 +747,16 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
         <SummaryCard
           label="Menunggu"
           value={counts.MENUNGGU}
           className="bg-amber-50 border-amber-200 text-amber-800"
+        />
+        <SummaryCard
+          label="Sudah Diperbaiki"
+          value={counts.SUDAH_DIPERBAIKI}
+          className="bg-indigo-50 border-indigo-200 text-indigo-800"
         />
         <SummaryCard
           label="Perlu Revisi"
@@ -937,8 +908,8 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                     {request.status === 'MENUNGGU' &&
                       request.resubmittedAt && (
                         <div className="mt-2 text-[10px] text-indigo-800">
-                          <strong>Sudah direvisi:</strong>{' '}
-                          menunggu review ulang Kepsek/Wakasek •{' '}
+                          <strong>Sudah diperbaiki:</strong>{' '}
+                          file terbaru sudah dikirim • menunggu review ulang Kepsek/Wakasek •{' '}
                           {formatDate(request.resubmittedAt)}
                         </div>
                       )}
@@ -1068,10 +1039,10 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                   <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
                     <div className="font-bold text-indigo-900 flex items-center gap-2">
                       <RotateCcw className="w-4 h-4" />
-                      Sudah Direvisi
+                      Sudah Diperbaiki
                     </div>
                     <p className="text-xs text-indigo-800 mt-2">
-                      Perbaikan telah dikirim ulang pada{' '}
+                      File hasil perbaikan telah dikirim ulang pada{' '}
                       <strong>
                         {formatDate(selectedRequest.resubmittedAt)}
                       </strong>
@@ -1281,7 +1252,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
             <div className="p-6 space-y-5">
               <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
                 <div className="text-xs font-bold text-violet-800">
-                  Catatan Kepala Sekolah
+                  Catatan Kepsek/Wakasek
                 </div>
                 <div className="text-sm text-violet-900 mt-1">
                   {revisionRequest.revisionNotes ||
@@ -1389,21 +1360,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                 />
               </div>
 
-              <div className="grid sm:grid-cols-3 gap-3">
-                <SelectField
-                  label="Sisi Cetak"
-                  value={revisionForm.printSide}
-                  options={[
-                    ['SINGLE', '1 Sisi'],
-                    ['DOUBLE', '2 Sisi'],
-                  ]}
-                  onChange={(value) =>
-                    setRevisionForm((prev) => ({
-                      ...prev,
-                      printSide: value,
-                    }))
-                  }
-                />
+              <div className="grid sm:grid-cols-2 gap-3">
 
                 <SelectField
                   label="Prioritas"
@@ -1450,7 +1407,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Ganti File Dokumen (Opsional)
+                  Upload File Hasil Perbaikan *
                 </label>
 
                 <label className="flex items-center gap-3 p-4 border border-dashed border-slate-300 rounded-xl cursor-pointer hover:bg-slate-50">
@@ -1459,15 +1416,17 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                     <div className="text-xs font-bold text-slate-800">
                       {replacementFile
                         ? replacementFile.name
-                        : 'Pilih file baru bila dokumen perlu diganti'}
+                        : 'Pilih file hasil perbaikan'}
                     </div>
                     <div className="text-[10px] text-slate-500">
-                      Maksimal 20 MB. Jika tidak memilih file,
-                      dokumen lama tetap digunakan.
+                      Maksimal 20 MB. File revisi wajib diunggah
+                      dan akan menjadi file utama terbaru untuk direview.
                     </div>
                   </div>
                   <input
                     type="file"
+                    required
+                    accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,image/*"
                     className="hidden"
                     onChange={(e) =>
                       setReplacementFile(
@@ -1497,7 +1456,7 @@ export const StatusTracker: React.FC<StatusTrackerProps> = ({
                 >
                   {revisionSubmitting
                     ? 'Mengirim Ulang...'
-                    : 'Kirim Ulang ke Kepala Sekolah'}
+                    : 'Kirim File Perbaikan untuk Review Ulang'}
                 </button>
               </div>
             </div>
